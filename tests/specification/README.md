@@ -58,3 +58,9 @@ This sentence uses `$` delimiters to show math inline: $\sqrt{3x-1}+(1+x)^2$
 
 And another using the Github `$`and backtick delimitter $`\sqrt{3x-1}+(1+x)^2`$
 
+Testing mathtt and mathrm
+
+```math
+\mathtt{foo}
+\mathrm{bar}
+```
