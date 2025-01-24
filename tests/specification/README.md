@@ -24,7 +24,9 @@ $$
 \left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)
 $$
 
-Testing aligned math
+Testing aligned math with a new line after
+
+
 $$
 \begin{aligned}
 C_1 = (appended: [10, 50], prepended: [10], deleted: [50])\\ 
