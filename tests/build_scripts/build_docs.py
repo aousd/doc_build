@@ -6,8 +6,10 @@ sys.path.append(repo_root)
 
 from doc_builder import DocBuilder
 
+
 class MyDocBuilder(DocBuilder):
     pass
+
 
 if __name__ == "__main__":
     MyDocBuilder().process_argparser()

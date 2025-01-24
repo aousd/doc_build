@@ -28,7 +28,11 @@ class DocBuilder:
         pandoc = self.find_pandoc()
 
         os.makedirs(args.output, exist_ok=True)
-        shutil.copytree(self.get_specification_root(), self.get_artifacts_dir(args), dirs_exist_ok=True)
+        shutil.copytree(
+            self.get_specification_root(),
+            self.get_artifacts_dir(args),
+            dirs_exist_ok=True,
+        )
         combined = self.preprocess_build(args)
 
         spec = self.get_metadata_defaults_file()
@@ -42,22 +46,33 @@ class DocBuilder:
             spec,
             combined,
             "--from=gfm+",
-            "-F", self.get_filter("convert_mathblocks"),
-            "-F", self.get_filter("bold_in_pre"),
-            "-F", self.get_filter("resolve_sections"),
-            "-V", f"date={datetime.today().strftime('%Y-%m-%d')}",
-            "-V", f"subtitle={subtitle}",
-            "-V", "geometry:margin=2.5cm",
-            "-V", "linestretch=1.25",
-            "-V", "fontsize=12pt",
-            "-V", "mainfont=Georgia",
-            "-V", f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args)}",
+            "-F",
+            self.get_filter("convert_mathblocks"),
+            "-F",
+            self.get_filter("bold_in_pre"),
+            "-F",
+            self.get_filter("resolve_sections"),
+            "-V",
+            f"date={datetime.today().strftime('%Y-%m-%d')}",
+            "-V",
+            f"subtitle={subtitle}",
+            "-V",
+            "geometry:margin=2.5cm",
+            "-V",
+            "linestretch=1.25",
+            "-V",
+            "fontsize=12pt",
+            "-V",
+            "mainfont=Georgia",
+            "-V",
+            f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args)}",
             "--toc=true",
-            "--toc-depth", "4",
+            "--toc-depth",
+            "4",
             "--standalone",
             "--number-sections=true",
             "--from=markdown-hard_line_breaks",
-            "--pdf-engine=xelatex"
+            "--pdf-engine=xelatex",
         ]
 
         if not args.no_draft:
@@ -72,22 +87,39 @@ class DocBuilder:
 
         if not args.no_html:
             html = os.path.join(args.output, f"{filename}.html")
-            html_template = os.path.join(self.get_scripts_root(), "template/default.html5")
+            html_template = os.path.join(
+                self.get_scripts_root(), "template/default.html5"
+            )
             print(f"\tBuilding HTML to {html}...")
             subprocess.check_call(
-                shared_command + ["-o", html, "--toc", "--standalone", "--embed-resources",
-                                  f"--template={html_template}", "--mathml"])
+                shared_command
+                + [
+                    "-o",
+                    html,
+                    "--toc",
+                    "--standalone",
+                    "--embed-resources",
+                    f"--template={html_template}",
+                    "--mathml",
+                ]
+            )
 
         if not args.no_pdf:
             pdf = os.path.join(args.output, f"{filename}.pdf")
-            latex_template = os.path.join(self.get_scripts_root(), "template/default.latex")
+            latex_template = os.path.join(
+                self.get_scripts_root(), "template/default.latex"
+            )
             print(f"\tBuilding PDF to {pdf}...")
-            subprocess.check_call(shared_command + ["-o", pdf, f"--template={latex_template}"])
+            subprocess.check_call(
+                shared_command + ["-o", pdf, f"--template={latex_template}"]
+            )
 
         if not args.no_docx:
             docx = os.path.join(args.output, f"{filename}.docx")
             print(f"\tBuilding DocX to {docx}...")
-            subprocess.check_call(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
+            subprocess.check_call(
+                shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")]
+            )
 
         return pdf, docx, html
 
@@ -128,9 +160,7 @@ class DocBuilder:
                             if os.path.exists(rel_path):
                                 path = rel_path
                             else:
-                                artifacts_path = os.path.join(
-                                    artifacts, path
-                                )
+                                artifacts_path = os.path.join(artifacts, path)
                                 if os.path.exists(artifacts_path):
                                     path = artifacts_path
                                 else:
@@ -192,7 +222,7 @@ class DocBuilder:
                 "collection-fontsrecommended",
                 "soul",
                 "titlesec",
-                "draftwatermark"
+                "draftwatermark",
             ]
         )
 
@@ -252,7 +282,7 @@ class DocBuilder:
 
                 # Skip excluded files and paths
                 if filename in EXCLUDE_FILES or any(
-                        filepath.startswith(ep) for ep in EXCLUDE_PATHS
+                    filepath.startswith(ep) for ep in EXCLUDE_PATHS
                 ):
                     continue
 
@@ -413,11 +443,17 @@ class DocBuilder:
     def get_subtitle(self, defaults_file_path):
         with open(defaults_file_path, "r") as f:
             import yaml
+
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()).decode("utf-8").strip()
+            commit = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()
+                )
+                .decode("utf-8")
+                .strip()
+            )
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
-
 
     def get_combined_file_name(self, args):
         artifacts = self.get_artifacts_dir(args)
@@ -467,7 +503,10 @@ class DocBuilder:
         self.construct_subparsers(parser)
 
         parser.add_argument(
-            "-o", "--output", help="Output directory", default=self.get_default_build_output_root()
+            "-o",
+            "--output",
+            help="Output directory",
+            default=self.get_default_build_output_root(),
         )
 
         args = parser.parse_args()
@@ -494,16 +533,24 @@ class DocBuilder:
         build_parser.add_argument(
             "--no-html", help="Do not build HTML", action="store_true"
         )
-        build_parser.add_argument("--no-pdf", help="Do not build PDF", action="store_true")
+        build_parser.add_argument(
+            "--no-pdf", help="Do not build PDF", action="store_true"
+        )
         build_parser.add_argument(
             "--no-docx", help="Do not build docx", action="store_true"
         )
         build_parser.add_argument(
             "--clean", help="Clean before building", action="store_true"
         )
-        build_parser.add_argument("--only", help="Only build certain docs", nargs="*", default=[])
-        build_parser.add_argument("--exclude", help="Exclude docs", nargs="*", default=[])
-        build_parser.add_argument("--no-draft", help="Do not add draft watermark", action="store_true")
+        build_parser.add_argument(
+            "--only", help="Only build certain docs", nargs="*", default=[]
+        )
+        build_parser.add_argument(
+            "--exclude", help="Exclude docs", nargs="*", default=[]
+        )
+        build_parser.add_argument(
+            "--no-draft", help="Do not add draft watermark", action="store_true"
+        )
 
         return build_parser
 
@@ -531,7 +578,9 @@ class DocBuilder:
         return export_parser
 
     def make_todo_parser(self, subparsers):
-        todo_parser = subparsers.add_parser("todo", help="List all TODO and FIXME items")
+        todo_parser = subparsers.add_parser(
+            "todo", help="List all TODO and FIXME items"
+        )
         todo_parser.set_defaults(func=self.display_todos)
         return todo_parser
 

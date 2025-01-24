@@ -22,7 +22,7 @@ def get_spec_doc_roots():
                 else:
                     continue
 
-            name = '-'.join([t.lower() for t in section.split() if t.isalnum()])
+            name = "-".join([t.lower() for t in section.split() if t.isalnum()])
             found[path] = f"#{name}"
 
     return found

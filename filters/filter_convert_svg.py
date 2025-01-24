@@ -8,6 +8,7 @@ rsvg_convert = shutil.which("rsvg-convert")
 if not rsvg_convert:
     raise RuntimeError("rsvg-convert not found")
 
+
 def convert_svg(key, value, format, metadata):
     if key != "Image":
         return
@@ -19,7 +20,9 @@ def convert_svg(key, value, format, metadata):
 
     png_path = base + ".png"
     dpi = str(192)
-    subprocess.check_call([rsvg_convert, image_path, "-o", png_path, "-d", dpi, "-p", dpi])
+    subprocess.check_call(
+        [rsvg_convert, image_path, "-o", png_path, "-d", dpi, "-p", dpi]
+    )
 
     value[2][0] = png_path
 
