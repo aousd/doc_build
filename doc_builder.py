@@ -42,6 +42,7 @@ class DocBuilder:
             spec,
             combined,
             "--from=gfm+",
+            "-F", self.get_filter("convert_mathblocks"),
             "-F", self.get_filter("bold_in_pre"),
             "-F", self.get_filter("resolve_sections"),
             "-V", f"date={datetime.today().strftime('%Y-%m-%d')}",
