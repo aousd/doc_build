@@ -41,6 +41,7 @@ class DocBuilder:
             "--defaults",
             spec,
             combined,
+            "--from=gfm+",
             "-F", self.get_filter("bold_in_pre"),
             "-F", self.get_filter("resolve_sections"),
             "-V", f"date={datetime.today().strftime('%Y-%m-%d')}",
@@ -93,7 +94,7 @@ class DocBuilder:
         artifacts = self.get_artifacts_dir(args)
         print(f"\tBuilding Preprocessing artifacts in {artifacts}...")
 
-        entry_point = os.path.join(self.get_artifacts_dir(args), "README.md")
+        entry_point = self.get_entry_point(args)
         combined = self.get_combined_file_name(args)
 
         self.flatten(args, entry_point, combined, substitutions=substitutions)
@@ -380,12 +381,15 @@ class DocBuilder:
 
     # MARK: Path constants
 
+    def _get_class_file(self):
+        return inspect.getfile(self.__class__)
+
     def get_scripts_root(self):
         return os.path.dirname(os.path.abspath(__file__))
 
     def get_repo_root(self):
         """Assumes that the repo root is two up from this root"""
-        return os.path.dirname(os.path.dirname(self.get_scripts_root()))
+        return os.path.dirname(os.path.dirname(self._get_class_file()))
 
     def get_specification_root(self):
         return os.path.join(self.get_repo_root(), "specification")
@@ -399,6 +403,9 @@ class DocBuilder:
         else:
             output = args.output
         return os.path.join(output, "artifacts")
+
+    def get_entry_point(self, args):
+        return os.path.join(self.get_artifacts_dir(args), "README.md")
 
     # MARK: Utility Functions
 
