@@ -1,10 +1,6 @@
-import sys
-import os
+#! /usr/bin/env python3
 
-repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(repo_root)
-
-from doc_builder import DocBuilder
+from doc_build.doc_builder import DocBuilder
 
 
 class MyDocBuilder(DocBuilder):

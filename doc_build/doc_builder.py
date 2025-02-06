@@ -178,60 +178,6 @@ class DocBuilder:
         if os.path.exists(args.output):
             shutil.rmtree(args.output)
 
-    def bootstrap_system(self, args):
-        LINUX = platform.system() == "Linux"
-        MACOS = platform.system() == "Darwin"
-        WINDOWS = platform.system() == "Windows"
-
-        if LINUX:
-            # Assume DNF which is common for RHEL folks.
-            dnf = shutil.which("dnf")
-            if not dnf:
-                sys.exit("Bootstrapping requires a Linux distro that uses DNF.")
-            command = [
-                "sudo",
-                "-S",
-                dnf,
-                "install",
-                "-y",
-                "pandoc",
-                "librsvg2-tools",
-                "texlive-scheme-basic",
-            ]
-        elif MACOS:
-            brew = shutil.which("brew")
-            if not brew:
-                sys.exit("Please install homebrew. https://brew.sh")
-            command = [brew, "install", "pandoc", "librsvg", "basictex"]
-        else:
-            sys.exit("Windows is not supported for bootstrapping.")
-
-        subprocess.check_call(command)
-
-        tlmgr = shutil.which("tlmgr")
-        if not tlmgr:
-            sys.exit("Could not find tlmgr.")
-
-        subprocess.check_call(["sudo", "-S", tlmgr, "update", "--self"])
-        subprocess.check_call(
-            [
-                "sudo",
-                "-S",
-                tlmgr,
-                "install",
-                "collection-fontsrecommended",
-                "soul",
-                "titlesec",
-                "draftwatermark",
-            ]
-        )
-
-        pip = shutil.which("pip3")
-        try:
-            import yaml
-        except ImportError:
-            subprocess.check_call([pip, "install", "pyyaml"])
-
     def run_linter(self, args):
         combined = self.get_combined_file_name(args)
         print(f"Linting {combined} ...")
@@ -516,7 +462,6 @@ class DocBuilder:
         subparsers = parser.add_subparsers(dest="command", required=True)
         self.make_build_parser(subparsers)
         self.make_clean_parser(subparsers)
-        self.make_bootstrap_parser(subparsers)
         self.make_lint_parser(subparsers)
         self.make_export_parser(subparsers)
         self.make_todo_parser(subparsers)
@@ -558,13 +503,6 @@ class DocBuilder:
         clean_parser = subparsers.add_parser("clean", help="Clean documentation")
         clean_parser.set_defaults(func=self.clean_docs)
         return clean_parser
-
-    def make_bootstrap_parser(self, subparsers):
-        bootstrap_parser = subparsers.add_parser(
-            "bootstrap", help="Install requirements for your build process"
-        )
-        bootstrap_parser.set_defaults(func=self.bootstrap_system)
-        return bootstrap_parser
 
     def make_lint_parser(self, subparsers):
         lint_parser = subparsers.add_parser("lint", help="Lint documentation")

@@ -381,4 +381,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+pixi.lock
+/.pixi
+
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,windows,linux,pycharm,visualstudiocode
