@@ -13,6 +13,7 @@ dependencies = [  ]
 pandoc = "*"
 pyyaml = "*"
 librsvg = "*"
+tectonic = "*"
 
 [tool.pixi.pypi-dependencies]
 doc_build = { path = ".", editable = true }
@@ -30,11 +31,13 @@ preview = ["pixi-build"]
 
 [tool.pixi.package.host-dependencies]
 flit-core = ">=3.4"
+tectonic = ">=0.15.0"
 
 [tool.pixi.package.run-dependencies]
 pandoc = "*"
 pyyaml = "*"
 librsvg = "*"
+tectonic = "*"
 
 [tool.pixi.package.build]
 backend = { name = "pixi-build-python", version = "0.1.*" }

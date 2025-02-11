@@ -72,7 +72,7 @@ class DocBuilder:
             "--standalone",
             "--number-sections=true",
             "--from=markdown-hard_line_breaks",
-            "--pdf-engine=xelatex",
+            "--pdf-engine=tectonic",
         ]
 
         if not args.no_draft:
