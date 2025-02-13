@@ -48,7 +48,7 @@ metadata:
 **build_docs.py**
 ```python
 #! /usr/bin/env python3
-from doc_build.doc_builder import DocBuilder
+from doc_build import DocBuilder
 
 class MyDocBuilder(DocBuilder):
     pass
