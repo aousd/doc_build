@@ -131,7 +131,7 @@ class DocBuilder:
                     if line.startswith("warning: accessing absolute path "):
                         continue
 
-                    print(line)
+                    print(line, file=sys.stderr)
 
             if std_out := std_out.decode("utf-8"):
                 print(std_out)
