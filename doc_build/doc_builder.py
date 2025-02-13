@@ -110,9 +110,31 @@ class DocBuilder:
                 self.get_scripts_root(), "template/default.latex"
             )
             print(f"\tBuilding PDF to {pdf}...")
-            subprocess.check_call(
-                shared_command + ["-o", pdf, f"--template={latex_template}"]
+            process = subprocess.Popen(
+                shared_command + ["-o", pdf, f"--template={latex_template}"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
+            std_out, std_err = process.communicate()
+
+            if std_err := std_err.decode("utf-8"):
+                lines = std_err.splitlines()
+
+                for line in lines:
+                    # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
+                    if line.startswith("warning: Trying to include PDF file with version "):
+                        continue
+                    # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
+                    if line.startswith("warning: texput.tex:") and "Overfull " in line:
+                        continue
+                    # Can also be safely ignored
+                    if line.startswith("warning: accessing absolute path "):
+                        continue
+
+                    print(line)
+
+            if std_out := std_out.decode("utf-8"):
+                print(std_out)
 
         if not args.no_docx:
             docx = os.path.join(args.output, f"{filename}.docx")
@@ -337,7 +359,7 @@ class DocBuilder:
                     print(f"{lineno}: {highlighted_line.strip()}")
 
                 last_word = ""
-                words = re.split("(\W+)", line)
+                words = re.split(r"(\W+)", line)
 
                 for word in words:
                     # Skip spaces or empty strings
@@ -345,7 +367,7 @@ class DocBuilder:
                         continue
 
                     # Skip punctuation
-                    if re.match("^\W+$", word):
+                    if re.match(r"^\W+$", word):
                         last_word = ""
                         continue
 
