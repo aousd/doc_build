@@ -52,6 +52,15 @@ $$
 \left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)
 ```
 
+Here's another test with some extra characters
+
+$$
+\begin{aligned}
+\bigsqcup\langle L_0, …, L_n\rangle &\cong \bigsqcup\langle L_0, …, L_n \smallsetminus I^\prime\rangle\\
+\bigsqcup\langle A, I^\prime, B, C, I^\prime\rangle &\cong \bigsqcup\langle A, B, C\rangle
+\end{aligned}
+$$
+
 ## Inline math 
 
 This sentence uses `$` delimiters to show math inline: $\sqrt{3x-1}+(1+x)^2$
