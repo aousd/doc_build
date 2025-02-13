@@ -1,0 +1,43 @@
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = [ "flit-core>=3.4" ]
+
+[project]
+name = "doc_build"
+version = "0.1.0"
+description = "Build scripts for AOUSD spec"
+requires-python = ">=3.10"
+dependencies = [  ]
+
+[tool.pixi.dependencies]
+pandoc = "*"
+pyyaml = "*"
+librsvg = "*"
+tectonic = "*"
+
+[tool.pixi.pypi-dependencies]
+doc_build = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test = "python tests/build_scripts/build_docs.py"
+
+[tool.pixi.workspace]
+channels = [
+    "https://prefix.dev/pixi-build-backends",
+    "https://prefix.dev/conda-forge",
+]
+platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
+preview = ["pixi-build"]
+
+[tool.pixi.package.host-dependencies]
+flit-core = ">=3.4"
+tectonic = ">=0.15.0"
+
+[tool.pixi.package.run-dependencies]
+pandoc = "*"
+pyyaml = "*"
+librsvg = "*"
+tectonic = "*"
+
+[tool.pixi.package.build]
+backend = { name = "pixi-build-python", version = "0.1.*" }

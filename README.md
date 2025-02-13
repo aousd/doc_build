@@ -9,7 +9,30 @@ We recommend the following structure in your Git repo.
 * `/specifications`: A folder to store your specification documents. It should contain a README.md that has links to documents that represent your individual sections.
 * `/build_scripts`: A folder to store the build code needed.
 
-In `/build_scipts` run the following command `git submodule add git@github.com:aousd/doc_build.git` to clone the submodule there.
+We recommend using [pixi](https://pixi.sh/) to setup the Python environment necessary to build your doc with `pandoc`. You can use the following config file to setup your project:
+
+**pyproject.toml**
+```toml
+[project]
+name = "my_spec"
+version = "0.1.0"
+description = "Build scripts for my WG spec"
+requires-python = ">= 3.10"
+dependencies = []
+
+[tool.pixi.project]
+channels = [ "conda-forge" ]
+platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
+preview = ["pixi-build"]
+
+[tool.pixi.dependencies]
+# Update "rev" to the latest SHA1 on the doc_build repository
+doc_build = { git = "ssh://git@github.com/aousd/doc_build.git", rev = "189b103" }
+
+[tool.pixi.tasks]
+# Update this command if you use a different folder structure
+main = "python build_scripts/build_docs.py"
+```
 
 Now create the following two files inside `/build_scripts`:
 
@@ -41,7 +64,7 @@ method on your class.
 
 ## Running Doc Builder
 
-To run the doc builds, simply run `python3 ./build_docs.py` with an appropriate sub command.
+To run the doc builds, simply run `pixi run main <command>` with an appropriate sub command.
 
 All subcommands have an optional `-o`/`--output` that can specify an output build directory. Otherwise, this is configured by the `AOUSD_BUILD` environment variable, or
 will default to a folder called `build` in your repository root.
@@ -56,7 +79,6 @@ The following subcommands are available:
     * `--only`/`--exclude`: Limits which sections get inlined during processing
     * `--no-draft`: Turns off the draft waterman on the PDF
 * `clean`: Cleans any build artifacts.
-* `bootstrap`: Tries to install dependencies. See the dependencies section below.
 * `lint`: Lints the build output for common issues.
 * `export`: Exports the git archive to a zip for sharing.
 * `todo`: Analyzes the build folder for TODOs and displays them.
@@ -69,16 +91,4 @@ methods and may or may not work.
 
 ### Dependencies
 
-To build the specification documentation, you need the following:
-
-* [Python](https://www.python.org) 3.10 or higher
-* [PyYaml](https://pypi.org/project/PyYAML/)
-* [Pandoc](https://pandoc.org)
-* [librsvg](https://gitlab.gnome.org/GNOME/librsvg)
-* [TexLive](https://www.tug.org/texlive/) or [basictex](https://formulae.brew.sh/cask/basictex)
-
-The build script can optionally install the dependencies for you as long as you are on either:
-* macOS with [Homebrew](https://brew.sh)
-* Linux with DNF
-
-This can be run with `python3 ./build_docs.py bootstrap`.
+Dependencies are automatically installed by [pixi](https://pixi.sh), and should work on macOS/Linux/Windows.
