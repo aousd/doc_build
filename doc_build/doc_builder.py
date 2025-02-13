@@ -131,6 +131,10 @@ class DocBuilder:
                     if line.startswith("warning: accessing absolute path "):
                         continue
 
+                    # Just reporting fluff
+                    if line.startswith("warning: warnings were issued"):
+                        continue
+
                     print(line, file=sys.stderr)
 
             if std_out := std_out.decode("utf-8"):
