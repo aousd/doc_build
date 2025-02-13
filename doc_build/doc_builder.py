@@ -125,7 +125,7 @@ class DocBuilder:
                     if line.startswith("warning: Trying to include PDF file with version "):
                         continue
                     # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
-                    if line.startswith("warning: texput.tex:") and "Overfull " in line:
+                    if line.startswith("warning: texput.") and ("Overfull " in line or "Underfull " in line):
                         continue
                     # Can also be safely ignored
                     if line.startswith("warning: accessing absolute path "):
