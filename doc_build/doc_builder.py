@@ -157,6 +157,9 @@ class DocBuilder:
         combined = self.get_combined_file_name(args)
 
         self.flatten(args, entry_point, combined, substitutions=substitutions)
+        
+        if not args.no_draft:
+            self.add_draft_copyright(combined)
 
         return combined
 
@@ -567,6 +570,33 @@ class DocBuilder:
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
 
+    def add_draft_copyright(self, combined):
+        intro_copyright = self.get_intro_draft_copyright()
+        outro = self.get_outro_draft_copyright()
+
+        with open(combined, "r") as f:
+            content = f.read()
+
+        with open(combined, "w") as f:
+            f.write(intro_copyright)
+            f.write(content)
+            f.write(outro)
+
+    def get_intro_draft_copyright(self):
+        path = os.path.join(self.get_scripts_root(), "legal/draft_intro.md")
+        if not os.path.exists(path):
+            raise IOError(f"Could not find {path}")
+
+        with open(path) as f:
+            return f.read()
+
+    def get_outro_draft_copyright(self):
+        path = os.path.join(self.get_scripts_root(), "legal/draft_copyright.md")
+        if not os.path.exists(path):
+            raise IOError(f"Could not find {path}")
+
+        with open(path) as f:
+            return f.read()
 
 if __name__ == "__main__":
     DocBuilder().process_argparser()
