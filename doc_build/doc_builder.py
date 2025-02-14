@@ -83,7 +83,7 @@ class DocBuilder:
         docx = None
         html = None
 
-        filename = "aousd_core_spec"
+        filename = self.get_file_base_name()
 
         if not args.no_html:
             html = os.path.join(args.output, f"{filename}.html")
@@ -148,6 +148,16 @@ class DocBuilder:
             )
 
         return pdf, docx, html
+
+    def get_file_base_name(self):
+        tokens = ["aousd"]
+        results = subprocess.check_output(["git", "remote", "-v"]).decode("utf-8").splitlines()
+        for result in results:
+            result = result.split("/")[-1].split()[0].replace(".git", "")
+            tokens.extend([d for d in result.split("-") if d != "wg"])
+            break
+        filename = '_'.join(tokens)
+        return filename
 
     def preprocess_build(self, args, substitutions=None):
         artifacts = self.get_artifacts_dir(args)
