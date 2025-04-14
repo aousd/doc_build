@@ -36,11 +36,12 @@ log = Logger()
 
 
 class ExecCommand:
-    def __init__(self, binary="pandoc"):
-        binary = shutil.which(binary)
-        if not binary:
-            sys.exit(f"Please install {binary}")
-        self.binary = [binary]
+    def __init__(self, binary_name):
+        if binary := shutil.which(binary_name):
+            self.binary = [binary]
+        else:
+            sys.exit(f"Please install {binary_name}")
+
 
     def __run(self, command, *args, **kwargs):
         subprocess.check_call(self.binary + command)
@@ -135,14 +136,6 @@ class DocBuilder:
             pdf = args.output / f"{filename}.pdf"
             latex_template = self.get_scripts_root() / "template" / "default.latex"
             log(f"\tBuilding PDF to {pdf}...")
-
-            # process = subprocess.Popen(
-            #     shared_command + ["-o", pdf, f"--template={latex_template}"],
-            #     stdout=subprocess.PIPE,
-            #     stderr=subprocess.PIPE
-            # )
-            # std_out, std_err = process.communicate()
-
             pandoc(shared_command + ["-o", pdf, f"--template={latex_template}"])
 
             if False:# and std_err := std_err.decode("utf-8"):
