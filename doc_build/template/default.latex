@@ -33,7 +33,7 @@ $for(header-includes)$
 $header-includes$
 $endfor$
 $if(draft)$
-\usepackage{draftwatermark}
+\usepackage[colorspec=0.95]{draftwatermark}
 $endif$
 \usepackage{titlesec}
 \newcommand{\sectionbreak}{\clearpage}

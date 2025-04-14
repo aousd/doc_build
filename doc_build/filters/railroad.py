@@ -115,6 +115,14 @@ class DiagramItem:
         write("<{0}".format(self.name))
         for name, value in sorted(self.attrs.items()):
             write(' {0}="{1}"'.format(name, escapeAttr(value)))
+        # EMBEDDING THE STYLE
+        # sys.stderr.write(f"{repr(self.name)}\n")
+        if self.name == "path":
+            write(' stroke="black" stroke-width="3" fill="none"')
+        elif self.name == "rect":
+            write(' stroke="black" stroke-width="3" fill="rgb(204,255,204)"')
+        elif self.name == "text":
+            write(' font-family="monospace" font-size="10pt" font-weight="bold" text-anchor="middle" fill="black"')
         write(">")
         if self.name in ["g", "svg"]:
             write("\n")
@@ -254,6 +262,7 @@ class Path:
         write("<path")
         for name, value in sorted(self.attrs.items()):
             write(f' {name}="{escapeAttr(value)}"')
+        write('  stroke="black" stroke-width="3" fill="none"')
         write(" />")
 
     def format(self) -> Path:
@@ -321,9 +330,10 @@ class Style:
         return TextDiagram(0, 0, [])
 
     def writeSvg(self, write: WriterF) -> None:
+        pass
         # Write included stylesheet as CDATA. See https:#developer.mozilla.org/en-US/docs/Web/SVG/Element/style
-        cdata = "/* <![CDATA[ */\n{css}\n/* ]]> */\n".format(css=self.css)
-        write("<style>{cdata}</style>".format(cdata=cdata))
+        # cdata = "/* <![CDATA[ */\n{css}\n/* ]]> */\n".format(css=self.css)
+        # write("<style>{cdata}</style>".format(cdata=cdata))
 
 
 class Diagram(DiagramMultiContainer):
@@ -442,6 +452,7 @@ class Diagram(DiagramMultiContainer):
         if css is None:
             css = DEFAULT_STYLE
         Style(css).addTo(self)
+        write('<?xml version="1.0" encoding="ISO-8859-1"?>')
         self.attrs["xmlns"] = "http://www.w3.org/2000/svg"
         self.attrs["xmlns:xlink"] = "http://www.w3.org/1999/xlink"
         DiagramItem.writeSvg(self, write)

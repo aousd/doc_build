@@ -17,7 +17,6 @@ def get_default_language(meta):
 
 # Function to handle results after processing all elements
 def process_results(key, value, format, meta):
-    # sys.stderr.write(f"{locals()}\n")
     if key == "Pandoc":
         keys = list(words.keys())
         inp = "\n".join(keys)
@@ -43,7 +42,6 @@ def process_results(key, value, format, meta):
             import mac_spellchecker
 
             for term in keys:
-                # sys.stderr.write(term)
                 mac_spellchecker.wrapper(term)
 
         sys.exit(0)  # Exit to prevent further processing
@@ -77,7 +75,6 @@ def check_div(key, value, format, meta):
 
 # Register filters for handling metadata, divs, spans, and strings
 def spellchecking_filter(key, value, format, meta):
-    # sys.stderr.write(f"spellchecking_filter {locals()}\n")
     if key == "Meta":
         return get_default_language(value)
     elif key == "Div":
