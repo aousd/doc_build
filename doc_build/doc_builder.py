@@ -10,14 +10,15 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import Dict
+
 try:
     import yaml
 except ImportError:
     sys.exit("Please install the PyYAML package: pip install PyYAML.")
 
-
 if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
+
 
 class Logger:
 
@@ -28,9 +29,9 @@ class Logger:
     def __call__(self, msg, *args, **kwargs):
         return self.__log(msg, *args, **kwargs)
 
-
     def __lshift__(self, msg):
         return self.__log(msg)
+
 
 log = Logger()
 
@@ -38,24 +39,44 @@ log = Logger()
 class ExecCommand:
     def __init__(self, binary_name):
         if binary := shutil.which(binary_name):
-            self.binary = [binary]
+            self.binary = binary
         else:
             sys.exit(f"Please install {binary_name}")
 
+    def __run(self, arguments, stderr_processor=None, *args, **kwargs):
+        command = [self.binary] + arguments
+        if stderr_processor:
 
-    def __run(self, command, *args, **kwargs):
-        subprocess.check_call(self.binary + command)
+            process = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                *args, **kwargs
+            )
+            std_out, std_err = process.communicate()
 
-    def __call__(self, command, *args, **kwargs):
-        return self.__run(command)
+            if std_err := std_err.decode("utf-8"):
+                stderr_processor(std_err)
 
-    def __lshift__(self, command):
+            if std_out := std_out.decode("utf-8"):
+                log(std_out)
+        else:
+            subprocess.check_call(command, *args, **kwargs)
 
-        return self.__run(command)
+        return self
+
+    def __call__(self, arguments, *args, **kwargs):
+        return self.__run(arguments, *args, **kwargs)
+
+    def __lshift__(self, arguments):
+        return self.__run(arguments)
+
+    def get_output(self, arguments, *args, **kwargs):
+        command = [self.binary] + arguments
+
+        return subprocess.check_output(command, *args, **kwargs).decode("utf-8")
 
 
 pandoc = ExecCommand("pandoc")
-
+git = ExecCommand("git")
 
 
 class DocBuilder:
@@ -130,23 +151,37 @@ class DocBuilder:
             html = args.output / f"{filename}.html"
             html_template = self.get_scripts_root() / "template" / "default.html5"
             log(f"\tBuilding HTML to {html}...")
-            pandoc(shared_command + ["-o", html, "--toc", "--standalone", "--mathml", "--embed-resources", f"--template={html_template}"])
+            pandoc(
+                shared_command
+                + [
+                    "-o",
+                    html,
+                    "--toc",
+                    "--standalone",
+                    "--mathml",
+                    "--embed-resources",
+                    f"--template={html_template}",
+                ]
+            )
 
         if not args.no_pdf:
             pdf = args.output / f"{filename}.pdf"
             latex_template = self.get_scripts_root() / "template" / "default.latex"
             log(f"\tBuilding PDF to {pdf}...")
-            pandoc(shared_command + ["-o", pdf, f"--template={latex_template}"])
 
-            if False:# and std_err := std_err.decode("utf-8"):
+            def stderr_processor(std_err):
                 lines = std_err.splitlines()
 
                 for line in lines:
                     # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
-                    if line.startswith("warning: Trying to include PDF file with version "):
+                    if line.startswith(
+                        "warning: Trying to include PDF file with version "
+                    ):
                         continue
                     # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
-                    if line.startswith("warning: texput.") and ("Overfull " in line or "Underfull " in line):
+                    if line.startswith("warning: texput.") and (
+                        "Overfull " in line or "Underfull " in line
+                    ):
                         continue
                     # Can also be safely ignored
                     if line.startswith("warning: accessing absolute path "):
@@ -156,10 +191,12 @@ class DocBuilder:
                     if line.startswith("warning: warnings were issued"):
                         continue
 
-                    print(line, file=sys.stderr)
+                    log(line, file=sys.stderr)
 
-            if False:# and std_out := std_out.decode("utf-8"):
-                log(std_out)
+            pandoc(
+                shared_command + ["-o", pdf, f"--template={latex_template}"],
+                stderr_processor=stderr_processor,
+            )
 
         if not args.no_docx:
             docx = args.output / f"{filename}.docx"
@@ -170,12 +207,12 @@ class DocBuilder:
 
     def get_file_base_name(self):
         tokens = ["aousd"]
-        results = subprocess.check_output(["git", "remote", "-v"]).decode("utf-8").splitlines()
+        results = git.get_output(["remote", "-v"]).splitlines()
         for result in results:
             result = result.split("/")[-1].split()[0].replace(".git", "")
             tokens.extend([d for d in result.split("-") if d != "wg"])
             break
-        filename = '_'.join(tokens)
+        filename = "_".join(tokens)
         return filename
 
     def preprocess_build(self, args, substitutions=None):
@@ -186,7 +223,7 @@ class DocBuilder:
         combined = self.get_combined_file_name(args.output)
 
         self.flatten(args, entry_point, combined, substitutions=substitutions)
-        
+
         if not args.no_draft:
             self.add_draft_copyright(combined)
 
@@ -242,26 +279,18 @@ class DocBuilder:
         assert combined.exists(), f"Could not find {combined}"
 
         linted = args.output / "linted.md"
-        pandoc((
-            "-s",
-            "-f",
-            "markdown-smart",
-            "--wrap=preserve",
-            "-o",
-            linted,
-            combined
-        ))
+        pandoc(
+            ("-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined)
+        )
 
         log(f"\tLint output: {linted}")
-
 
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
         filepath = args.output / filename
         log(f"Exporting archive to {filepath}...")
-        subprocess.check_call(["git", "archive", "--format", "zip", "--output", filepath, args.branch])
-
+        git(["archive", "--format", "zip", "--output", filepath, args.branch])
         return filepath
 
     def display_todos(self, args):
@@ -307,13 +336,17 @@ class DocBuilder:
         index_yaml = artifacts / "build_index.yaml"
         self.write_yaml(index_yaml, {"OUTPUT": output_tsv.as_posix()})
 
-        pandoc((source,
-                   "--metadata-file",
-                   index_yaml,
-                   "-F",
-                   self.get_filter("generate_index"),
-                   "-o",
-                   output_md))
+        pandoc(
+            (
+                source,
+                "--metadata-file",
+                index_yaml,
+                "-F",
+                self.get_filter("generate_index"),
+                "-o",
+                output_md,
+            )
+        )
 
         return output_tsv
 
@@ -332,13 +365,15 @@ class DocBuilder:
         log(f"Checking styles in {combined}...")
         assert combined.exists(), f"Could not find {combined}"
 
-        log((
-            "Legend:"
-            "\n\t\033[91mWeasel Words\033[0m"
-            "\n\t\033[95mIrregulars\033[0m"
-            "\n\t\033[93mDuplicates\033[0m"
-            "\n\n"
-        ))
+        log(
+            (
+                "Legend:"
+                "\n\t\033[91mWeasel Words\033[0m"
+                "\n\t\033[95mIrregulars\033[0m"
+                "\n\t\033[93mDuplicates\033[0m"
+                "\n\n"
+            )
+        )
 
         # Define the default list of weasel words
         weasels = (
@@ -426,18 +461,12 @@ class DocBuilder:
     def get_entry_point(self, args) -> Path:
         return self.get_artifacts_dir(args.output) / "README.md"
 
-# MARK: Utility Functions
+    # MARK: Utility Functions
 
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = (
-                subprocess.check_output(
-                    ["git", "rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()
-                )
-                .decode("utf-8")
-                .strip()
-            )
+            commit = git.get_output(["rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()).strip()
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
@@ -579,7 +608,6 @@ class DocBuilder:
             f.write(content)
             f.write(outro)
 
-
     def get_intro_draft_copyright(self):
         path = self.get_scripts_root() / "legal/draft_intro.md"
         return self._read_file(path)
@@ -594,6 +622,7 @@ class DocBuilder:
 
         with open(filename) as f:
             return f.read()
+
 
 if __name__ == "__main__":
     DocBuilder().process_argparser()
