@@ -19,27 +19,42 @@ except ImportError:
 if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
 
+class Logger:
+
+    def __log(self, msg, *args, **kwargs):
+        print(msg, *args, **kwargs)
+        return self
+
+    def __call__(self, msg, *args, **kwargs):
+        return self.__log(msg, *args, **kwargs)
+
+
+    def __lshift__(self, msg):
+        return self.__log(msg)
+
+log = Logger()
+
 
 class ExecCommand:
-    def __init__(self, command="pandoc"):
-        command = shutil.which(command)
-        if not command:
-            sys.exit(f"Please install {command}")
-        self.command = [command]
+    def __init__(self, binary="pandoc"):
+        binary = shutil.which(binary)
+        if not binary:
+            sys.exit(f"Please install {binary}")
+        self.binary = [binary]
 
-    def __lshift__(self, other):
-        subprocess.check_call(self.command + list(other))
-        return self
+    def __run(self, command, *args, **kwargs):
+        subprocess.check_call(self.binary + command)
 
+    def __call__(self, command, *args, **kwargs):
+        return self.__run(command)
 
-class LogCommand:
-    def __lshift__(self, other):
-        print(other)
-        return self
+    def __lshift__(self, command):
+
+        return self.__run(command)
 
 
 pandoc = ExecCommand("pandoc")
-log = LogCommand()
+
 
 
 class DocBuilder:
@@ -48,7 +63,7 @@ class DocBuilder:
 
     # MARK: Target Functions
     def build_docs(self, args):
-        log << f"Building documentation in {args.output}..."
+        log(f"Building documentation in {args.output}...")
         if args.clean:
             self.clean_docs(args)
 
@@ -101,7 +116,7 @@ class DocBuilder:
         ]
 
         if not args.no_draft:
-            log << "\tAdding Draft Watermark..."
+            log("\tAdding Draft Watermark...")
             shared_command.extend(["-V", "draft=true"])
 
         pdf = None
@@ -113,22 +128,24 @@ class DocBuilder:
         if not args.no_html:
             html = args.output / f"{filename}.html"
             html_template = self.get_scripts_root() / "template" / "default.html5"
-            log << f"\tBuilding HTML to {html}..."
-            pandoc << shared_command + ["-o", html, "--toc", "--standalone", "--mathml", "--embed-resources", f"--template={html_template}"]
+            log(f"\tBuilding HTML to {html}...")
+            pandoc(shared_command + ["-o", html, "--toc", "--standalone", "--mathml", "--embed-resources", f"--template={html_template}"])
 
         if not args.no_pdf:
             pdf = args.output / f"{filename}.pdf"
             latex_template = self.get_scripts_root() / "template" / "default.latex"
-            log << f"\tBuilding PDF to {pdf}..."
+            log(f"\tBuilding PDF to {pdf}...")
 
-            process = subprocess.Popen(
-                shared_command + ["-o", pdf, f"--template={latex_template}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            std_out, std_err = process.communicate()
+            # process = subprocess.Popen(
+            #     shared_command + ["-o", pdf, f"--template={latex_template}"],
+            #     stdout=subprocess.PIPE,
+            #     stderr=subprocess.PIPE
+            # )
+            # std_out, std_err = process.communicate()
 
-            if std_err := std_err.decode("utf-8"):
+            pandoc(shared_command + ["-o", pdf, f"--template={latex_template}"])
+
+            if False:# and std_err := std_err.decode("utf-8"):
                 lines = std_err.splitlines()
 
                 for line in lines:
@@ -148,13 +165,13 @@ class DocBuilder:
 
                     print(line, file=sys.stderr)
 
-            if std_out := std_out.decode("utf-8"):
-                log << std_out
+            if False:# and std_out := std_out.decode("utf-8"):
+                log(std_out)
 
         if not args.no_docx:
             docx = args.output / f"{filename}.docx"
-            log << f"\tBuilding DocX to {docx}..."
-            pandoc << shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")]
+            log(f"\tBuilding DocX to {docx}...")
+            pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
         return pdf, docx, html
 
@@ -170,7 +187,7 @@ class DocBuilder:
 
     def preprocess_build(self, args, substitutions=None):
         artifacts = self.get_artifacts_dir(args.output)
-        log << f"\tBuilding Preprocessing artifacts in {artifacts}..."
+        log(f"\tBuilding Preprocessing artifacts in {artifacts}...")
 
         entry_point = self.get_entry_point(args)
         combined = self.get_combined_file_name(args.output)
@@ -183,7 +200,7 @@ class DocBuilder:
         return combined
 
     def flatten(self, args, source, output, substitutions: Dict[str, str] = None):
-        log << f"\tFlattening {source}..."
+        log(f"\tFlattening {source}...")
         substitutions = substitutions or {}
         artifacts = self.get_artifacts_dir(args.output)
         with open(source, "r") as source_file:
@@ -228,11 +245,11 @@ class DocBuilder:
 
     def run_linter(self, args):
         combined = self.get_combined_file_name(args.output)
-        log << f"Linting {combined} ..."
+        log(f"Linting {combined} ...")
         assert combined.exists(), f"Could not find {combined}"
 
         linted = args.output / "linted.md"
-        pandoc << (
+        pandoc((
             "-s",
             "-f",
             "markdown-smart",
@@ -240,22 +257,22 @@ class DocBuilder:
             "-o",
             linted,
             combined
-        )
+        ))
 
-        log << f"\tLint output: {linted}"
+        log(f"\tLint output: {linted}")
 
 
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
         filepath = args.output / filename
-        log << f"Exporting archive to {filepath}..."
+        log(f"Exporting archive to {filepath}...")
         subprocess.check_call(["git", "archive", "--format", "zip", "--output", filepath, args.branch])
 
         return filepath
 
     def display_todos(self, args):
-        log << f"Listing Todos under {args.output}..."
+        log(f"Listing Todos under {args.output}...")
         # Configuration for exclusions
         EXCLUDE_DIRS = {"docs", ".git", ".idea"}
         EXCLUDE_FILES = {"Makefile"}
@@ -282,13 +299,13 @@ class DocBuilder:
                         for lineno, line in enumerate(file, start=1):
                             if (TODO_PATTERN in line) or (FIXME_PATTERN in line):
                                 relative_path = os.path.relpath(filepath, ".")
-                                log << f"{relative_path}:{lineno}:{line.strip()}"
+                                log(f"{relative_path}:{lineno}:{line.strip()}")
                 except (UnicodeDecodeError, OSError):
                     # Skip files that can't be read
                     pass
 
     def build_index(self, args):
-        log << f"Building index from {args.output}..."
+        log(f"Building index from {args.output}...")
         artifacts = self.get_artifacts_dir(args.output)
         source = artifacts / "usd_spec.md"
         output_md = artifacts / "index.md"
@@ -297,38 +314,38 @@ class DocBuilder:
         index_yaml = artifacts / "build_index.yaml"
         self.write_yaml(index_yaml, {"OUTPUT": output_tsv.as_posix()})
 
-        pandoc << (source,
+        pandoc((source,
                    "--metadata-file",
                    index_yaml,
                    "-F",
                    self.get_filter("generate_index"),
                    "-o",
-                   output_md)
+                   output_md))
 
         return output_tsv
 
     def display_spellcheck_issues(self, args):
         combined = self.get_combined_file_name(args.output)
-        log << f"Checking spellings in {combined}..."
+        log(f"Checking spellings in {combined}...")
         assert combined.exists(), f"Could not find {combined}"
 
         fixed = args.output / "spellings_corrected.md"
-        pandoc << ("-F", self.get_filter("spellcheck"), combined, "-o", fixed)
+        pandoc(("-F", self.get_filter("spellcheck"), combined, "-o", fixed))
 
         return fixed
 
     def display_style_issues(self, args):
         combined = self.get_combined_file_name(args.output)
-        log << f"Checking styles in {combined}..."
+        log(f"Checking styles in {combined}...")
         assert combined.exists(), f"Could not find {combined}"
 
-        log << (
+        log((
             "Legend:"
             "\n\t\033[91mWeasel Words\033[0m"
             "\n\t\033[95mIrregulars\033[0m"
             "\n\t\033[93mDuplicates\033[0m"
             "\n\n"
-        )
+        ))
 
         # Define the default list of weasel words
         weasels = (
@@ -365,12 +382,12 @@ class DocBuilder:
                     highlighted_line = weasel_pattern.sub(
                         lambda m: f"\033[91m{m.group(0)}\033[0m", line
                     )
-                    log << f"{lineno}: {highlighted_line.strip()}"
+                    log(f"{lineno}: {highlighted_line.strip()}")
                 if irregular_pattern.search(line):
                     highlighted_line = irregular_pattern.sub(
                         lambda m: f"\033[95m{m.group(0)}\033[0m", line
                     )
-                    log << f"{lineno}: {highlighted_line.strip()}"
+                    log(f"{lineno}: {highlighted_line.strip()}")
 
                 last_word = ""
                 words = re.split(r"(\W+)", line)
@@ -387,7 +404,7 @@ class DocBuilder:
 
                     # Found a duplicate word?
                     if word.lower() == last_word.lower():
-                        log << f"{lineno} \n\t\033[93m{word}\033[0m"
+                        log(f"{lineno} \n\t\033[93m{word}\033[0m")
 
                     # Mark this as the last word
                     last_word = word
@@ -571,11 +588,11 @@ class DocBuilder:
 
 
     def get_intro_draft_copyright(self):
-        path = os.path.join(self.get_scripts_root(), "legal/draft_intro.md")
+        path = self.get_scripts_root() / "legal/draft_intro.md"
         return self._read_file(path)
 
     def get_outro_draft_copyright(self):
-        path = os.path.join(self.get_scripts_root(), "legal/draft_copyright.md")
+        path = self.get_scripts_root() / "legal/draft_copyright.md"
         return self._read_file(path)
 
     def _read_file(self, filename):
