@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import sys
 from collections import defaultdict
 from pandocfilters import toJSONFilter, RawBlock
 import string

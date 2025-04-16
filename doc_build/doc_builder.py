@@ -4,15 +4,79 @@ import inspect
 import shutil
 import subprocess
 import sys
-import platform
 import os
 import re
 import time
+from pathlib import Path
 from datetime import datetime
 from typing import Dict
 
+try:
+    import yaml
+except ImportError:
+    sys.exit("Please install the PyYAML package: pip install PyYAML.")
+
 if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
+
+
+class Logger:
+
+    def __log(self, msg, *args, **kwargs):
+        print(msg, *args, **kwargs)
+        return self
+
+    def __call__(self, msg, *args, **kwargs):
+        return self.__log(msg, *args, **kwargs)
+
+    def __lshift__(self, msg):
+        return self.__log(msg)
+
+
+log = Logger()
+
+
+class ExecCommand:
+    def __init__(self, binary_name):
+        if binary := shutil.which(binary_name):
+            self.binary = binary
+        else:
+            sys.exit(f"Please install {binary_name}")
+
+    def __run(self, arguments, stderr_processor=None, *args, **kwargs):
+        command = [self.binary] + arguments
+        if stderr_processor:
+
+            process = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                *args, **kwargs
+            )
+            std_out, std_err = process.communicate()
+
+            if std_err := std_err.decode("utf-8"):
+                stderr_processor(std_err)
+
+            if std_out := std_out.decode("utf-8"):
+                log(std_out)
+        else:
+            subprocess.check_call(command, *args, **kwargs)
+
+        return self
+
+    def __call__(self, arguments, *args, **kwargs):
+        return self.__run(arguments, *args, **kwargs)
+
+    def __lshift__(self, arguments):
+        return self.__run(arguments)
+
+    def get_output(self, arguments, *args, **kwargs):
+        command = [self.binary] + arguments
+
+        return subprocess.check_output(command, *args, **kwargs).decode("utf-8")
+
+
+pandoc = ExecCommand("pandoc")
+git = ExecCommand("git")
 
 
 class DocBuilder:
@@ -21,16 +85,15 @@ class DocBuilder:
 
     # MARK: Target Functions
     def build_docs(self, args):
-        print(f"Building documentation in {args.output}...")
+        log(f"Building documentation in {args.output}...")
         if args.clean:
             self.clean_docs(args)
 
-        pandoc = self.find_pandoc()
+        args.output.mkdir(parents=True, exist_ok=True)
 
-        os.makedirs(args.output, exist_ok=True)
         shutil.copytree(
             self.get_specification_root(),
-            self.get_artifacts_dir(args),
+            self.get_artifacts_dir(args.output),
             dirs_exist_ok=True,
         )
         combined = self.preprocess_build(args)
@@ -38,10 +101,9 @@ class DocBuilder:
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
 
-        # Set the cwd to the artifacts dir because its easier for some filters to work relatively to it
-        os.chdir(self.get_artifacts_dir(args))
+        # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
+        os.chdir(self.get_artifacts_dir(args.output))
         shared_command = [
-            pandoc,
             "--defaults",
             spec,
             combined,
@@ -65,7 +127,7 @@ class DocBuilder:
             "-V",
             "mainfont=Georgia",
             "-V",
-            f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args)}",
+            f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
             "--toc=true",
             "--toc-depth",
             "4",
@@ -76,7 +138,7 @@ class DocBuilder:
         ]
 
         if not args.no_draft:
-            print("\tAdding Draft Watermark...")
+            log("\tAdding Draft Watermark...")
             shared_command.extend(["-V", "draft=true"])
 
         pdf = None
@@ -86,46 +148,40 @@ class DocBuilder:
         filename = self.get_file_base_name()
 
         if not args.no_html:
-            html = os.path.join(args.output, f"{filename}.html")
-            html_template = os.path.join(
-                self.get_scripts_root(), "template/default.html5"
-            )
-            print(f"\tBuilding HTML to {html}...")
-            subprocess.check_call(
+            html = args.output / f"{filename}.html"
+            html_template = self.get_scripts_root() / "template" / "default.html5"
+            log(f"\tBuilding HTML to {html}...")
+            pandoc(
                 shared_command
                 + [
                     "-o",
                     html,
                     "--toc",
                     "--standalone",
+                    "--mathml",
                     "--embed-resources",
                     f"--template={html_template}",
-                    "--mathml",
                 ]
             )
 
         if not args.no_pdf:
-            pdf = os.path.join(args.output, f"{filename}.pdf")
-            latex_template = os.path.join(
-                self.get_scripts_root(), "template/default.latex"
-            )
-            print(f"\tBuilding PDF to {pdf}...")
-            process = subprocess.Popen(
-                shared_command + ["-o", pdf, f"--template={latex_template}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            std_out, std_err = process.communicate()
+            pdf = args.output / f"{filename}.pdf"
+            latex_template = self.get_scripts_root() / "template" / "default.latex"
+            log(f"\tBuilding PDF to {pdf}...")
 
-            if std_err := std_err.decode("utf-8"):
+            def stderr_processor(std_err):
                 lines = std_err.splitlines()
 
                 for line in lines:
                     # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
-                    if line.startswith("warning: Trying to include PDF file with version "):
+                    if line.startswith(
+                        "warning: Trying to include PDF file with version "
+                    ):
                         continue
                     # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
-                    if line.startswith("warning: texput.") and ("Overfull " in line or "Underfull " in line):
+                    if line.startswith("warning: texput.") and (
+                        "Overfull " in line or "Underfull " in line
+                    ):
                         continue
                     # Can also be safely ignored
                     if line.startswith("warning: accessing absolute path "):
@@ -135,48 +191,48 @@ class DocBuilder:
                     if line.startswith("warning: warnings were issued"):
                         continue
 
-                    print(line, file=sys.stderr)
+                    log(line, file=sys.stderr)
 
-            if std_out := std_out.decode("utf-8"):
-                print(std_out)
+            pandoc(
+                shared_command + ["-o", pdf, f"--template={latex_template}"],
+                stderr_processor=stderr_processor,
+            )
 
         if not args.no_docx:
-            docx = os.path.join(args.output, f"{filename}.docx")
-            print(f"\tBuilding DocX to {docx}...")
-            subprocess.check_call(
-                shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")]
-            )
+            docx = args.output / f"{filename}.docx"
+            log(f"\tBuilding DocX to {docx}...")
+            pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
         return pdf, docx, html
 
     def get_file_base_name(self):
         tokens = ["aousd"]
-        results = subprocess.check_output(["git", "remote", "-v"]).decode("utf-8").splitlines()
+        results = git.get_output(["remote", "-v"]).splitlines()
         for result in results:
             result = result.split("/")[-1].split()[0].replace(".git", "")
             tokens.extend([d for d in result.split("-") if d != "wg"])
             break
-        filename = '_'.join(tokens)
+        filename = "_".join(tokens)
         return filename
 
     def preprocess_build(self, args, substitutions=None):
-        artifacts = self.get_artifacts_dir(args)
-        print(f"\tBuilding Preprocessing artifacts in {artifacts}...")
+        artifacts = self.get_artifacts_dir(args.output)
+        log(f"\tBuilding Preprocessing artifacts in {artifacts}...")
 
         entry_point = self.get_entry_point(args)
-        combined = self.get_combined_file_name(args)
+        combined = self.get_combined_file_name(args.output)
 
         self.flatten(args, entry_point, combined, substitutions=substitutions)
-        
+
         if not args.no_draft:
             self.add_draft_copyright(combined)
 
         return combined
 
     def flatten(self, args, source, output, substitutions: Dict[str, str] = None):
-        print(f"\tFlattening {source}...")
+        log(f"\tFlattening {source}...")
         substitutions = substitutions or {}
-        artifacts = self.get_artifacts_dir(args)
+        artifacts = self.get_artifacts_dir(args.output)
         with open(source, "r") as source_file:
             lines = source_file.readlines()
             with open(output, "w") as out:
@@ -214,123 +270,109 @@ class DocBuilder:
                         out.write(line)
 
     def clean_docs(self, args):
-        if os.path.exists(args.output):
+        if args.output.exists():
             shutil.rmtree(args.output)
 
     def run_linter(self, args):
-        combined = self.get_combined_file_name(args)
-        print(f"Linting {combined} ...")
-        assert os.path.exists(combined), f"Could not find {combined}"
+        combined = self.get_combined_file_name(args.output)
+        log(f"Linting {combined} ...")
+        assert combined.exists(), f"Could not find {combined}"
 
-        pandoc = self.find_pandoc()
+        linted = args.output / "linted.md"
+        pandoc(
+            ("-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined)
+        )
 
-        linted = os.path.join(args.output, "linted.md")
-        command = [
-            pandoc,
-            "-s",
-            "-f",
-            "markdown-smart",
-            "--wrap=preserve",
-            "-o",
-            linted,
-            combined,
-        ]
-
-        subprocess.check_call(command)
-        print(f"\tLint output: {linted}")
+        log(f"\tLint output: {linted}")
 
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
-        filepath = os.path.join(args.output, filename)
-        print(f"Exporting archive to {filepath}...")
-        subprocess.check_call(
-            ["git", "archive", "--format", "zip", "--output", filepath, args.branch]
-        )
+        filepath = args.output / filename
+        log(f"Exporting archive to {filepath}...")
+        git(["archive", "--format", "zip", "--output", filepath, args.branch])
         return filepath
 
     def display_todos(self, args):
-        print(f"Listing Todos under {args.output}...")
+        log(f"Listing Todos under {args.output}...")
         # Configuration for exclusions
         EXCLUDE_DIRS = {"docs", ".git", ".idea"}
         EXCLUDE_FILES = {"Makefile"}
         EXCLUDE_PATHS = {"./filters/pegen", "./trash", "./build", "./tools"}
         TODO_PATTERN = "TODO"
-        FIXME_PATTERN = "TODO"
+        FIXME_PATTERN = "FIXME"
 
         for dirpath, dirnames, filenames in os.walk(args.output):
             # Remove excluded directories from traversal
             dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
 
             for filename in filenames:
-                filepath = os.path.join(dirpath, filename)
+                filepath = Path(dirpath) / filename
 
                 # Skip excluded files and paths
                 if filename in EXCLUDE_FILES or any(
-                    filepath.startswith(ep) for ep in EXCLUDE_PATHS
+                    filepath.resolve().as_posix().startswith(ep) for ep in EXCLUDE_PATHS
                 ):
                     continue
 
-                # Check for 'TODO' in each file
+                # Check for 'TODO' and 'FIXME' in each file
                 try:
-                    with open(filepath, "r", encoding="utf-8") as file:
+                    with filepath.open("r", encoding="utf-8") as file:
                         for lineno, line in enumerate(file, start=1):
                             if (TODO_PATTERN in line) or (FIXME_PATTERN in line):
                                 relative_path = os.path.relpath(filepath, ".")
-                                print(f"{relative_path}:{lineno}:{line.strip()}")
+                                log(f"{relative_path}:{lineno}:{line.strip()}")
                 except (UnicodeDecodeError, OSError):
                     # Skip files that can't be read
                     pass
 
     def build_index(self, args):
-        print(f"Building index from {args.output}...")
-        pandoc = self.find_pandoc()
-        artifacts = self.get_artifacts_dir(args)
-        source = os.path.join(artifacts, "usd_spec.md")
-        output_md = os.path.join(artifacts, "index.md")
-        output_tsv = os.path.join(args.output, "index.tsv")
+        log(f"Building index from {args.output}...")
+        artifacts = self.get_artifacts_dir(args.output)
+        source = artifacts / "usd_spec.md"
+        output_md = artifacts / "index.md"
+        output_tsv = args.output / "index.tsv"
 
-        index_yaml = os.path.join(artifacts, "build_index.yaml")
-        self.write_yaml(index_yaml, {"OUTPUT": output_tsv})
+        index_yaml = artifacts / "build_index.yaml"
+        self.write_yaml(index_yaml, {"OUTPUT": output_tsv.as_posix()})
 
-        command = [
-            pandoc,
-            source,
-            "--metadata-file",
-            index_yaml,
-            "-F",
-            self.get_filter("generate_index"),
-            "-o",
-            output_md,
-        ]
-
-        subprocess.check_call(command)
+        pandoc(
+            (
+                source,
+                "--metadata-file",
+                index_yaml,
+                "-F",
+                self.get_filter("generate_index"),
+                "-o",
+                output_md,
+            )
+        )
 
         return output_tsv
 
     def display_spellcheck_issues(self, args):
-        combined = self.get_combined_file_name(args)
-        print(f"Checking spellings in {combined}...")
-        assert os.path.exists(combined), f"Could not find {combined}"
+        combined = self.get_combined_file_name(args.output)
+        log(f"Checking spellings in {combined}...")
+        assert combined.exists(), f"Could not find {combined}"
 
-        fixed = os.path.join(args.output, "spellings_corrected.md")
-        command = [self.find_pandoc(), "-F", self.get_filter("spellcheck"), "-o", fixed]
-
-        subprocess.check_call(command)
+        fixed = args.output / "spellings_corrected.md"
+        pandoc(("-F", self.get_filter("spellcheck"), combined, "-o", fixed))
 
         return fixed
 
     def display_style_issues(self, args):
-        combined = self.get_combined_file_name(args)
-        print(f"Checking styles in {combined}...")
-        assert os.path.exists(combined), f"Could not find {combined}"
+        combined = self.get_combined_file_name(args.output)
+        log(f"Checking styles in {combined}...")
+        assert combined.exists(), f"Could not find {combined}"
 
-        print(
-            "Legend:"
-            "\n\t\033[91mWeasel Words\033[0m"
-            "\n\t\033[95mIrregulars\033[0m"
-            "\n\t\033[93mDuplicates\033[0m"
-            "\n\n"
+        log(
+            (
+                "Legend:"
+                "\n\t\033[91mWeasel Words\033[0m"
+                "\n\t\033[95mIrregulars\033[0m"
+                "\n\t\033[93mDuplicates\033[0m"
+                "\n\n"
+            )
         )
 
         # Define the default list of weasel words
@@ -368,12 +410,12 @@ class DocBuilder:
                     highlighted_line = weasel_pattern.sub(
                         lambda m: f"\033[91m{m.group(0)}\033[0m", line
                     )
-                    print(f"{lineno}: {highlighted_line.strip()}")
+                    log(f"{lineno}: {highlighted_line.strip()}")
                 if irregular_pattern.search(line):
                     highlighted_line = irregular_pattern.sub(
                         lambda m: f"\033[95m{m.group(0)}\033[0m", line
                     )
-                    print(f"{lineno}: {highlighted_line.strip()}")
+                    log(f"{lineno}: {highlighted_line.strip()}")
 
                 last_word = ""
                 words = re.split(r"(\W+)", line)
@@ -390,78 +432,54 @@ class DocBuilder:
 
                     # Found a duplicate word?
                     if word.lower() == last_word.lower():
-                        print(f"{lineno} \n\t\033[93m{word}\033[0m")
+                        log(f"{lineno} \n\t\033[93m{word}\033[0m")
 
                     # Mark this as the last word
                     last_word = word
 
     # MARK: Path constants
 
-    def _get_class_file(self):
-        return inspect.getfile(self.__class__)
+    def _get_class_file(self) -> Path:
+        return Path(inspect.getfile(self.__class__))
 
-    def get_scripts_root(self):
-        return os.path.dirname(os.path.abspath(__file__))
+    def get_scripts_root(self) -> Path:
+        return Path(__file__).resolve().parent
 
-    def get_repo_root(self):
+    def get_repo_root(self) -> Path:
         """Assumes that the repo root is two up from this root"""
-        return os.path.dirname(os.path.dirname(self._get_class_file()))
+        return self._get_class_file().parent.parent
 
-    def get_specification_root(self):
-        return os.path.join(self.get_repo_root(), "specification")
+    def get_specification_root(self) -> Path:
+        return self.get_repo_root() / "specification"
 
-    def get_default_build_output_root(self):
-        return os.getenv("AOUSD_BUILD") or os.path.join(self.get_repo_root(), "build")
+    def get_default_build_output_root(self) -> Path:
+        return Path(os.getenv("AOUSD_BUILD", self.get_repo_root() / "build"))
 
-    def get_artifacts_dir(self, args):
-        if isinstance(args, str):
-            output = args
-        else:
-            output = args.output
-        return os.path.join(output, "artifacts")
+    def get_artifacts_dir(self, output_path: Path) -> Path:
+        return output_path / "artifacts"
 
-    def get_entry_point(self, args):
-        return os.path.join(self.get_artifacts_dir(args), "README.md")
+    def get_entry_point(self, args) -> Path:
+        return self.get_artifacts_dir(args.output) / "README.md"
 
     # MARK: Utility Functions
 
-    def get_subtitle(self, defaults_file_path):
+    def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
-            import yaml
-
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = (
-                subprocess.check_output(
-                    ["git", "rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()
-                )
-                .decode("utf-8")
-                .strip()
-            )
+            commit = git.get_output(["rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()).strip()
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
-    def get_combined_file_name(self, args):
-        artifacts = self.get_artifacts_dir(args)
-        return os.path.join(artifacts, "usd_spec.md")
+    def get_combined_file_name(self, output_path: Path) -> Path:
+        return self.get_artifacts_dir(output_path) / "usd_spec.md"
 
-    def find_pandoc(self):
-        pandoc = shutil.which("pandoc")
-        if not pandoc:
-            sys.exit("Please install Pandoc")
-        return pandoc
-
-    def get_filter(self, name):
-        path = os.path.join(self.get_scripts_root(), "filters", f"filter_{name}.py")
-        assert os.path.exists(path), f"Could not find {path}"
+    def get_filter(self, name: str) -> Path:
+        path = self.get_scripts_root() / "filters" / f"filter_{name}.py"
+        assert path.exists(), f"Could not find {path}"
         return path
 
-    def write_yaml(self, output, data):
-        try:
-            import yaml
-        except ImportError:
-            sys.exit("Please install the PyYAML package: pip install PyYAML.")
-
-        with open(output, "w") as f:
+    def write_yaml(self, output: Path, data: dict):
+        with output.open("w") as f:
             yaml.dump(data, f)
 
     def should_process(self, document, args):
@@ -472,14 +490,14 @@ class DocBuilder:
 
         return True
 
-    def get_metadata_defaults_file(self):
-        this_path = inspect.getfile(self.__class__)
-        this_dir = os.path.dirname(this_path)
-        this_spec = os.path.join(this_dir, "defaults.yaml")
-        if os.path.exists(this_spec):
+    def get_metadata_defaults_file(self) -> Path:
+        this_path = self._get_class_file()
+        this_spec = this_path.parent / "defaults.yaml"
+
+        if this_spec.exists():
             return this_spec
 
-        return os.path.join(self.get_scripts_root(), "defaults.yaml")
+        return self.get_scripts_root() / "defaults.yaml"
 
     # MARK: Argparser builds
 
@@ -583,9 +601,7 @@ class DocBuilder:
     def add_draft_copyright(self, combined):
         intro_copyright = self.get_intro_draft_copyright()
         outro = self.get_outro_draft_copyright()
-
-        with open(combined, "r") as f:
-            content = f.read()
+        content = self._read_file(combined)
 
         with open(combined, "w") as f:
             f.write(intro_copyright)
@@ -593,20 +609,20 @@ class DocBuilder:
             f.write(outro)
 
     def get_intro_draft_copyright(self):
-        path = os.path.join(self.get_scripts_root(), "legal/draft_intro.md")
-        if not os.path.exists(path):
-            raise IOError(f"Could not find {path}")
-
-        with open(path) as f:
-            return f.read()
+        path = self.get_scripts_root() / "legal/draft_intro.md"
+        return self._read_file(path)
 
     def get_outro_draft_copyright(self):
-        path = os.path.join(self.get_scripts_root(), "legal/draft_copyright.md")
-        if not os.path.exists(path):
-            raise IOError(f"Could not find {path}")
+        path = self.get_scripts_root() / "legal/draft_copyright.md"
+        return self._read_file(path)
 
-        with open(path) as f:
+    def _read_file(self, filename):
+        if not filename.exists():
+            raise IOError(f"Could not find {filename}")
+
+        with open(filename) as f:
             return f.read()
+
 
 if __name__ == "__main__":
     DocBuilder().process_argparser()

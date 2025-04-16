@@ -4,8 +4,6 @@ from pandocfilters import toJSONFilter, Para, Image, CodeBlock, get_caption
 
 import io
 
-# import sys
-
 from peg_to_peg import convert_peg_parsimonious_to_pegen
 from gen_svg import convert_node, Nothing
 import railroad as railroad
@@ -25,12 +23,9 @@ def create_diagram(key, value, format, metadata):
         if classes == ["peg"]:
             build_directory = metadata["AOUSD_BUILD"]["c"][0]["c"]
             part_name = metadata["PART"]["c"][0]["c"]
-            # sys.stderr.write(f":{code}:\n")
 
             old_peg = "".join(code.split("\n"))
             new_peg = convert_peg_parsimonious_to_pegen(old_peg)
-
-            # sys.stderr.write(f":{new_peg}:\n")
 
             try:
                 ss = list(tokenize.generate_tokens(io.StringIO(new_peg).readline))
