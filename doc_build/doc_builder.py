@@ -606,8 +606,8 @@ class DocBuilder:
         return style_parser
 
     def add_draft_copyright(self, combined):
-        intro_copyright = self.get_intro_draft_copyright()
-        outro = self.get_outro_draft_copyright()
+        intro_copyright = self.get_intro_legalese()
+        outro = self.get_outro_legalese()
         content = self._read_file(combined)
 
         with open(combined, "w") as f:
@@ -615,12 +615,12 @@ class DocBuilder:
             f.write(content)
             f.write(outro)
 
-    def get_intro_draft_copyright(self):
+    def get_intro_legalese(self):
         path = self.get_scripts_root() / "legal/draft_intro.md"
         return self._read_file(path)
 
-    def get_outro_draft_copyright(self):
-        path = self.get_scripts_root() / "legal/draft_copyright.md"
+    def get_outro_legalese(self):
+        path = self.get_scripts_root() / "legal/draft_outro.md"
         return self._read_file(path)
 
     def _read_file(self, filename):
