@@ -456,6 +456,11 @@ class DocBuilder:
         return Path(os.getenv("AOUSD_BUILD", self.get_repo_root() / "build"))
 
     def get_artifacts_dir(self, output_path: Path) -> Path:
+        if not isinstance(output_path, Path):
+            if hasattr(output_path, "output"):
+                output_path = output_path.output
+            else:
+                raise TypeError("Output Path should be a Path object")
         return output_path / "artifacts"
 
     def get_entry_point(self, args) -> Path:
@@ -479,6 +484,8 @@ class DocBuilder:
         return path
 
     def write_yaml(self, output: Path, data: dict):
+        if isinstance(output, str):
+            output = Path(str)
         with output.open("w") as f:
             yaml.dump(data, f)
 
