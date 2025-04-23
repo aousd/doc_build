@@ -235,7 +235,7 @@ class DocBuilder:
         artifacts = self.get_artifacts_dir(args.output)
         with open(source, "r") as source_file:
             lines = source_file.readlines()
-            with open(output, "w") as out:
+            with open(output, "w", encoding="utf-8") as out:
                 for line in lines:
                     if res := re.search(r"\[(.*)]\((.*\.md)\)", line):
                         path = res.group(2)
@@ -262,7 +262,7 @@ class DocBuilder:
                                     raise IOError(f"Could not find {path}")
                         assert os.path.exists(path), f"Could not find {path}"
 
-                        with open(path, "r") as section:
+                        with open(path, "r", encoding="utf-8") as section:
                             out.write(section.read())
                             out.write("\n\n")
 
@@ -610,7 +610,7 @@ class DocBuilder:
         outro = self.get_outro_legalese()
         content = self._read_file(combined)
 
-        with open(combined, "w") as f:
+        with open(combined, "w", encoding="utf-8") as f:
             f.write(intro_copyright)
             f.write(content)
             f.write(outro)
@@ -627,7 +627,7 @@ class DocBuilder:
         if not filename.exists():
             raise IOError(f"Could not find {filename}")
 
-        with open(filename) as f:
+        with open(filename, encoding="utf-8") as f:
             return f.read()
 
 
