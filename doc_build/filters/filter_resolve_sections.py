@@ -12,7 +12,7 @@ def get_spec_doc_roots():
                 continue
             path = os.path.join(root, f)
 
-            with open(path, "r") as md:
+            with open(path, "r", encoding="utf-8") as md:
                 for line in md.readlines():
                     line = line.strip()
                     if line.startswith("#"):
