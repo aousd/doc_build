@@ -30,15 +30,15 @@ if TYPE_CHECKING:
 # Display constants
 DEBUG = False  # if true, writes some debug information into attributes
 VS = 8  # minimum vertical separation between things. For a 3px stroke, must be at least 4
-AR = 10  # radius of arcs
+AR = 7  # radius of arcs
 DIAGRAM_CLASS = "railroad-diagram"  # class to put on the root <svg>
 STROKE_ODD_PIXEL_LENGTH = (
-    True  # is the stroke width an odd (1px, 3px, etc) pixel length?
+    False  # is the stroke width an odd (1px, 3px, etc) pixel length?
 )
 INTERNAL_ALIGNMENT = (
     "center"  # how to align items when they have extra space. left/right/center
 )
-CHAR_WIDTH = 8.5  # width of each monospace character. play until you find the right value for your font
+CHAR_WIDTH = 6  # width of each monospace character. play until you find the right value for your font
 COMMENT_CHAR_WIDTH = 7  # comments are in smaller text by default
 ESCAPE_HTML = True  # Should Diagram.writeText() produce HTML-escaped text, or raw?
 
@@ -53,8 +53,25 @@ def escapeAttr(val: Union[str, float]) -> str:
     return f"{val:g}"
 
 
+import html
+
+
+def reverse_bracket_conversion(text):
+    text = text.replace("⟦", "[").replace("⟧", "]")
+    text = text.replace("⟨", "<").replace("⟩", ">")
+    text = text.replace("➕", "+")
+    text = text.replace("−", "-")
+    text = text.replace("＇", "'")
+    text = text.replace('＂', '"')
+
+    # Escape HTML special characters (e.g., <, >, &, etc.)
+    text = html.escape(text)
+
+    return text
+
+
 def escapeHtml(val: str) -> str:
-    return escapeAttr(val).replace("<", "&lt;")
+    return reverse_bracket_conversion(escapeAttr(val))
 
 
 def determineGaps(outer: float, inner: float) -> Tuple[float, float]:
@@ -116,13 +133,21 @@ class DiagramItem:
         for name, value in sorted(self.attrs.items()):
             write(' {0}="{1}"'.format(name, escapeAttr(value)))
         # EMBEDDING THE STYLE
-        # sys.stderr.write(f"{repr(self.name)}\n")
         if self.name == "path":
-            write(' stroke="black" stroke-width="3" fill="none"')
+            write(' stroke="black" stroke-width="2" fill="none"')
         elif self.name == "rect":
-            write(' stroke="black" stroke-width="3" fill="rgb(204,255,204)"')
+            if "group-box-" in self.attrs.get("class", ""):
+                if self.attrs.get("class", "") == "group-box-orange":
+                    write(' stroke="rgb(255,165,0)" stroke-width="2" fill="rgba(255, 179, 102, 0.3)"')
+                else:
+                    write(' stroke="rgb(104,255,104)" stroke-width="2" fill="rgba(204,255,204, 0.5)"')
+            else:
+                write(' stroke="black" stroke-width="2" fill="rgb(204,255,204)"')
         elif self.name == "text":
-            write(' font-family="monospace" font-size="10pt" font-weight="bold" text-anchor="middle" fill="black"')
+            if self.attrs.get("class", "") == "comment":
+                write(' font-family="monospace" font-size="7pt" text-anchor="middle" fill="black"')
+            else:
+                write(' font-family="monospace" font-size="8pt" font-weight="bold" text-anchor="middle" fill="black"')
         write(">")
         if self.name in ["g", "svg"]:
             write("\n")
@@ -262,7 +287,7 @@ class Path:
         write("<path")
         for name, value in sorted(self.attrs.items()):
             write(f' {name}="{escapeAttr(value)}"')
-        write('  stroke="black" stroke-width="3" fill="none"')
+        write('  stroke="black" stroke-width="2" fill="none"')
         write(" />")
 
     def format(self) -> Path:
@@ -285,7 +310,7 @@ DEFAULT_STYLE = """\
 		background-color: rgb(255, 255,255);
 	}
 	svg.railroad-diagram path {
-		stroke-width:3;
+		stroke-width:2;
 		stroke:black;
 		fill:rgba(0,0,0,0);
 	}
@@ -300,7 +325,7 @@ DEFAULT_STYLE = """\
 		font:italic 12px monospace;
 	}
 	svg.railroad-diagram rect{
-		stroke-width:3;
+		stroke-width:2;
 		stroke:black;
 		fill:hsl(120,100%,90%);
 	}
@@ -381,7 +406,7 @@ class Diagram(DiagramMultiContainer):
         paddingTop: float = 20,
         paddingRight: Opt[float] = None,
         paddingBottom: Opt[float] = None,
-        paddingLeft: Opt[float] = None,
+        paddingLeft: Opt[float] = 5,
     ) -> Diagram:
         if paddingRight is None:
             paddingRight = paddingTop
@@ -514,6 +539,9 @@ class Sequence(DiagramMultiContainer):
 
 class Stack(DiagramMultiContainer):
     def __init__(self, *items: Node):
+
+        self.VS2 = VS*3  # additional vertical spacing between the stacked items
+
         DiagramMultiContainer.__init__(self, "g", items)
         self.needsSpace = True
         self.width = max(
@@ -529,9 +557,9 @@ class Stack(DiagramMultiContainer):
         for i, item in enumerate(self.items):
             self.height += item.height
             if i > 0:
-                self.height += max(AR * 2, item.up + VS)
+                self.height += max(AR * 2, item.up + self.VS2)
             if i < last:
-                self.height += max(AR * 2, item.down + VS)
+                self.height += max(AR * 2, item.down + self.VS2)
         addDebug(self)
 
     def __repr__(self) -> str:
@@ -557,16 +585,16 @@ class Stack(DiagramMultiContainer):
                 (
                     Path(x, y)
                     .arc("ne")
-                    .down(max(0, item.down + VS - AR * 2))
+                    .down(max(0, item.down + self.VS2 - AR * 2))
                     .arc("es")
                     .left(innerWidth)
                     .arc("nw")
-                    .down(max(0, self.items[i + 1].up + VS - AR * 2))
+                    .down(max(0, self.items[i + 1].up + self.VS2 - AR * 2))
                     .arc("ws")
                     .addTo(self)
                 )
-                y += max(item.down + VS, AR * 2) + max(
-                    self.items[i + 1].up + VS, AR * 2
+                y += max(item.down + self.VS2, AR * 2) + max(
+                    self.items[i + 1].up + self.VS2, AR * 2
                 )
                 x = xInitial + AR
         if len(self.items) > 1:
@@ -1804,6 +1832,11 @@ class Group(DiagramItem):
         Path(x + leftGap + self.width, y + self.height).h(rightGap).addTo(self)
         x += leftGap
 
+        if "NOT" in self.label.text:
+            groupbox_class = "group-box-orange"
+        else:
+            groupbox_class = "group-box-green"
+
         DiagramItem(
             "rect",
             {
@@ -1813,7 +1846,7 @@ class Group(DiagramItem):
                 "height": self.boxUp + self.height + self.down,
                 "rx": AR,
                 "ry": AR,
-                "class": "group-box",
+                "class": groupbox_class,
             },
         ).addTo(self)
 
@@ -2091,7 +2124,6 @@ class TextDiagram:
     parts: Dict[str, str]
 
     def __init__(self, entry: int, exit: int, lines: List[str]) -> TextDiagram:
-        print("TextDiagram")
         # entry: The entry line for this diagram-part.
         self.entry: int = entry
         # exit: The exit line for this diagram-part.
@@ -2100,18 +2132,6 @@ class TextDiagram:
         self.height: int = len(lines)
         # lines[]: The visual data of this diagram-part.  Each line must be the same length.
         self.lines: List[str] = lines.copy()
-        ### HACK
-        for c, _ in enumerate(self.lines):
-            # sys.stderr.write(self.lines[c])
-            self.lines[c] = (
-                self.lines[c]
-                .replace("&quot;&quot;&quot;", "")
-                .replace("&quot;", "")
-                .replace('"', "")
-            )
-        sys.stderr.write("LINES\n")
-        sys.stderr.write("\n".join(self.lines))
-        ### END HACK
         # width: The width of this diagram-part, in character cells.
         self.width: int = len(lines[0]) if len(lines) > 0 else 0
         nl = "\n"  # f-strings can't contain \n until Python 3.12

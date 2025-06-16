@@ -31,6 +31,21 @@ class Nothing(Data):
 
 
 @dataclasses.dataclass
+class LookaheadGroup:
+    item: object
+    label: str
+
+    def as_railroad(self):
+        return railroad.Group(item=self.item.as_railroad(), label=self.label)
+
+    def simplify(self):
+        return self
+
+    def __str__(self):
+        return str(self.item)
+
+
+@dataclasses.dataclass
 class Container(Data):
     items: list
 
@@ -83,6 +98,9 @@ class Choice(Container):
 
 
 def simplify_adjacent_choices(*choices):
+
+    pass
+
     match choices:
         case a, b if a == b:
             return [a]
@@ -319,9 +337,9 @@ def convert_node(node):
         case pegen.grammar.StringLeaf():
             return Terminal(node.value)
         case pegen.grammar.PositiveLookahead():
-            return Sequence([])
+            return LookaheadGroup(convert_node(node.node), "  AND")
         case pegen.grammar.NegativeLookahead():
-            return Sequence([])
+            return LookaheadGroup(convert_node(node.node), "  NOT")
         case pegen.grammar.Cut():
             return Sequence([])
         case pegen.grammar.Gather():
