@@ -8,3 +8,23 @@ $endif$
 $if(verbatim-in-note)$
 \VerbatimFootnotes % allow verbatim text in footnotes
 $endif$
+
+\usepackage[most]{tcolorbox}
+\definecolor{notebg}{RGB}{255,255,204}
+\tcbset{
+  blockquote/.style={
+    colback=notebg,
+    colframe=orange!80!black,
+    boxrule=0pt,
+    frame hidden,
+    enhanced,
+    overlay={
+      \draw[orange!80!black, line width=1pt]
+        (frame.north west) -- (frame.south west);
+    },
+    left=3mm, right=2mm, top=3mm, bottom=3mm,
+    before skip=10pt, after skip=10pt
+  }
+}
+\renewenvironment{quote}{\begin{tcolorbox}[blockquote]}{\end{tcolorbox}}
+
