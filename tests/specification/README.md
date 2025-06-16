@@ -1,6 +1,7 @@
 # Specification Test
 
-This document is a specification test.
+This document is a specification test for the [AOUSD](https://www.aousd.org) website.
+Following this is a link to the [Math Tests](#math-tests) section.
 
 It exists to test common setups across multiple AOUSD repos 
 and to ensure we reduce the risk of regressions.

@@ -131,6 +131,8 @@ class DocBuilder:
             "monofont=Menlo",
             "-V",
             f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
+            "-V",
+            "colorlinks=true",
             "--toc=true",
             "--toc-depth",
             "2",
