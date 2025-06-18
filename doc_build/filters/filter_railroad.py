@@ -15,40 +15,50 @@ from pegen.tokenizer import Tokenizer
 from pegen.grammar_parser import GeneratedParser as GrammarParser
 
 counter = 0
-
-
 LINE_BREAK_MARKER = "↵"
-
-from railroad import Sequence, Stack, NonTerminal
 
 
 def split_for_stack(container):
-    # TODO support for both CHOICE and STACK in the same PEG
-
-    if not LINE_BREAK_MARKER in str(container):
+    if LINE_BREAK_MARKER not in str(container):
         return container
 
-    if not hasattr(container, "items"):
-        return container  # Not splittable, return as is
+    # Handle multi-item containers (Sequence, Choice, Stack)
+    if hasattr(container, "items"):
+        processed_items = [split_for_stack(item) for item in container.items]
 
-    stack_parts = []
-    current_part = []
+        if isinstance(container, railroad.Sequence):
+            stack_parts = []
+            current_part = []
 
-    for item in container.items:
-        if isinstance(item, NonTerminal) and item.text == LINE_BREAK_MARKER:
+            for item in processed_items:
+                if isinstance(item, railroad.NonTerminal) and item.text == LINE_BREAK_MARKER:
+                    if current_part:
+                        stack_parts.append(railroad.Sequence(*current_part))
+                        current_part = []
+                else:
+                    current_part.append(item)
+
             if current_part:
-                stack_parts.append(Sequence(*current_part))
-                current_part = []
+                stack_parts.append(railroad.Sequence(*current_part))
+
+            return stack_parts[0] if len(stack_parts) == 1 else railroad.Stack(*stack_parts)
+
+        elif isinstance(container, railroad.Choice):
+            return railroad.Choice(container.default, *processed_items)
+
+        elif isinstance(container, railroad.Stack):
+            return railroad.Stack(*processed_items)
+
         else:
-            current_part.append(item)
+            return container.__class__(*processed_items)
 
-    if current_part:
-        stack_parts.append(Sequence(*current_part))
+    # Handle single-item containers (ZeroOrMore, OneOrMore, Optional)
+    elif hasattr(container, "item"):
+        processed_item = split_for_stack(container.item)
+        return type(container)(processed_item)
 
-    if len(stack_parts) == 1:
-        return stack_parts[0]
-    else:
-        return Stack(*stack_parts)
+    # Terminal or unknown container — return as is
+    return container
 
 
 def create_diagram(key, value, format, metadata):

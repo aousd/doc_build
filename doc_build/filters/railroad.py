@@ -1813,7 +1813,7 @@ class Group(DiagramItem):
             self.label = None
 
         self.width = max(
-            self.item.width + (20 if self.item.needsSpace else 0),
+            self.item.width, # + (20 if self.item.needsSpace else 0),
             self.label.width if self.label else 0,
             AR * 2,
         )
