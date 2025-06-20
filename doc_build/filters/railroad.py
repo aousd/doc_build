@@ -38,7 +38,7 @@ STROKE_ODD_PIXEL_LENGTH = (
 INTERNAL_ALIGNMENT = (
     "center"  # how to align items when they have extra space. left/right/center
 )
-CHAR_WIDTH = 6  # width of each monospace character. play until you find the right value for your font
+CHAR_WIDTH = 6.2  # width of each monospace character. play until you find the right value for your font
 COMMENT_CHAR_WIDTH = 7  # comments are in smaller text by default
 ESCAPE_HTML = True  # Should Diagram.writeText() produce HTML-escaped text, or raw?
 
@@ -315,14 +315,14 @@ DEFAULT_STYLE = """\
 		fill:rgba(0,0,0,0);
 	}
 	svg.railroad-diagram text {
-		font:bold 14px monospace;
+		font:bold 11px monospace;
 		text-anchor:middle;
 	}
 	svg.railroad-diagram text.label{
 		text-anchor:start;
 	}
 	svg.railroad-diagram text.comment{
-		font:italic 12px monospace;
+		font:italic 9px monospace;
 	}
 	svg.railroad-diagram rect{
 		stroke-width:2;
@@ -355,10 +355,9 @@ class Style:
         return TextDiagram(0, 0, [])
 
     def writeSvg(self, write: WriterF) -> None:
-        pass
         # Write included stylesheet as CDATA. See https:#developer.mozilla.org/en-US/docs/Web/SVG/Element/style
-        # cdata = "/* <![CDATA[ */\n{css}\n/* ]]> */\n".format(css=self.css)
-        # write("<style>{cdata}</style>".format(cdata=cdata))
+        cdata = "/* <![CDATA[ */\n{css}\n/* ]]> */\n".format(css=self.css)
+        write("<style>{cdata}</style>".format(cdata=cdata))
 
 
 class Diagram(DiagramMultiContainer):
@@ -2013,7 +2012,11 @@ class NonTerminal(DiagramItem):
         self.href = href
         self.title = title
         self.cls = cls
+
         self.width = len(text) * CHAR_WIDTH + 20
+        if not text.isascii():
+            self.width += 10
+
         self.up = 11
         self.down = 11
         self.needsSpace = True
