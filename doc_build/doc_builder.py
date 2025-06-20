@@ -130,6 +130,8 @@ class DocBuilder:
             "-V",
             "monofont=Menlo",
             "-V",
+            "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
+            "-V",
             f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
             "-V", "colorlinks=true",
             "-V", "linkcolor=OliveGreen",
