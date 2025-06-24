@@ -129,8 +129,8 @@ class DocBuilder:
             "mainfont=Georgia",
             "-V",
             "monofont=Menlo",
-            "-V",
-            "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
+            # "-V",
+            # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
             f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
             "-V", "colorlinks=true",
@@ -290,7 +290,7 @@ class DocBuilder:
 
         linted = args.output / "linted.md"
         pandoc(
-            ("-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined)
+            ["-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined]
         )
 
         log(f"\tLint output: {linted}")
@@ -347,7 +347,7 @@ class DocBuilder:
         self.write_yaml(index_yaml, {"OUTPUT": output_tsv.as_posix()})
 
         pandoc(
-            (
+            [
                 source,
                 "--metadata-file",
                 index_yaml,
@@ -355,7 +355,7 @@ class DocBuilder:
                 self.get_filter("generate_index"),
                 "-o",
                 output_md,
-            )
+            ]
         )
 
         return output_tsv
@@ -366,7 +366,7 @@ class DocBuilder:
         assert combined.exists(), f"Could not find {combined}"
 
         fixed = args.output / "spellings_corrected.md"
-        pandoc(("-F", self.get_filter("spellcheck"), combined, "-o", fixed))
+        pandoc(["-F", self.get_filter("spellcheck"), combined, "-o", fixed])
 
         return fixed
 
