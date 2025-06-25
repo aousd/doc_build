@@ -4,7 +4,7 @@ import sys
 from PIL import Image
 
 image_dir = sys.argv[-1]    # Directory with PNG images
-right_edge_width = 100      # Number of pixels from the right edge to check - 1cm margin with 300 dpi is ~120
+right_edge_width = 250      # Number of pixels from the right edge to check - 1cm margin with 300 dpi is ~120
 black_threshold = 50        # Max value to consider a pixel "black" (0 is pure black)
 
 

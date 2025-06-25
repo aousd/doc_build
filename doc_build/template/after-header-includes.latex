@@ -9,6 +9,7 @@ $if(verbatim-in-note)$
 \VerbatimFootnotes % allow verbatim text in footnotes
 $endif$
 
+% set the notes to have an orange color
 \usepackage[most]{tcolorbox}
 \definecolor{notebg}{RGB}{255,255,204}
 \tcbset{
@@ -28,3 +29,41 @@ $endif$
 }
 \renewenvironment{quote}{\begin{tcolorbox}[blockquote]}{\end{tcolorbox}}
 
+\usepackage{fancyvrb}
+
+% set the right margin as non-formatted
+\usepackage{ragged2e}
+\RaggedRight
+
+% set the odd/even rows in tables to have different row backgrounds
+% \usepackage{longtable}
+% sometimes produces a couple of rows of the same color... commented out for now
+% \rowcolors{2}{gray!10}{white}
+\usepackage{booktabs}
+
+% adjust the title page style
+\usepackage{fontspec}
+\usepackage{sectsty}
+\usepackage{titling}
+
+\newfontfamily\titlefont[Path=$fontpath$, Extension=.ttf, UprightFont=*]{Montserrat-Regular}
+\pretitle{\begin{center}
+            \pagenumbering{gobble} % do not number the front page
+            \vspace*{\fill} % Pushes everything below it down to center
+            \titlefont\Huge\bfseries}
+\posttitle{\par\end{center}\vskip 1em}
+\preauthor{\begin{center}\titlefont\large}
+\postauthor{\par\end{center}}
+\predate{\begin{center}\titlefont\large}
+\postdate{\par\end{center}
+
+\begin{center}
+    \vspace*{\fill} % Pushes the logo down, balancing the first \vspace
+    \includegraphics[width=0.4\textwidth]{$fontpath$logo.pdf}
+    \vspace*{2cm} % Adjust this value to control distance from bottom
+    \clearpage % Ensure a new page after the title page
+\end{center}
+
+\newpage
+\pagenumbering{arabic}
+}

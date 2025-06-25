@@ -101,6 +101,8 @@ class DocBuilder:
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
 
+        fontpath = (Path(__file__).resolve().parent / "front_page").as_posix() + "/"
+
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
         os.chdir(self.get_artifacts_dir(args.output))
         shared_command = [
@@ -112,25 +114,31 @@ class DocBuilder:
             self.get_filter("convert_mathblocks"),
             "-F",
             self.get_filter("resolve_sections"),
+            "-F",
+            self.get_filter("sections_new_page"),
+            "-F",
+            self.get_filter("smaller_listings"),
             "-V",
             f"date={datetime.today().strftime('%Y-%m-%d')}",
             "-V",
-            f"subtitle={subtitle}",
-            # "-V",
-            # "geometry:margin=2.5cm",
-            # "geometry:margin=1cm",
-            "-V", "geometry:top=1cm", "-V", "geometry:bottom=2cm", "-V", "geometry:left=1cm", "-V", "geometry:right=1cm",
+            f"fontpath={fontpath}",
             "-V",
-            "linestretch=1.0",
-            # "linestretch=1.25",
+            f"subtitle={subtitle}",
+            "-V",
+            "geometry:margin=1in",
+            # "geometry:margin=1cm",
+            # "-V", "geometry:top=1cm", "-V", "geometry:bottom=2cm", "-V", "geometry:left=1cm", "-V", "geometry:right=1cm",
+            "-V",
+            # "linestretch=1.0",
+            "linestretch=1.25",
             "-V",
             "fontsize=10pt",
             "-V",
             "mainfont=Georgia",
             "-V",
             "monofont=Menlo",
-            "-V",
-            "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
+            # "-V",
+            # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
             f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
             "-V", "colorlinks=true",
@@ -290,7 +298,7 @@ class DocBuilder:
 
         linted = args.output / "linted.md"
         pandoc(
-            ("-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined)
+            ["-s", "-f", "markdown-smart", "--wrap=preserve", "-o", linted, combined]
         )
 
         log(f"\tLint output: {linted}")
@@ -347,7 +355,7 @@ class DocBuilder:
         self.write_yaml(index_yaml, {"OUTPUT": output_tsv.as_posix()})
 
         pandoc(
-            (
+            [
                 source,
                 "--metadata-file",
                 index_yaml,
@@ -355,7 +363,7 @@ class DocBuilder:
                 self.get_filter("generate_index"),
                 "-o",
                 output_md,
-            )
+            ]
         )
 
         return output_tsv
@@ -366,7 +374,7 @@ class DocBuilder:
         assert combined.exists(), f"Could not find {combined}"
 
         fixed = args.output / "spellings_corrected.md"
-        pandoc(("-F", self.get_filter("spellcheck"), combined, "-o", fixed))
+        pandoc(["-F", self.get_filter("spellcheck"), combined, "-o", fixed])
 
         return fixed
 
