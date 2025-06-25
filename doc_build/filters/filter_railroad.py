@@ -116,7 +116,7 @@ def create_diagram(key, value, format, metadata):
                     height = f"{h}pt"
 
                     # centimetres = w * 2.54 / 72
-                    # if centimetres > 19:  # hardcoded maximum width, good for debugging; should be 16 for A4 and legal
+                    # if centimetres > 17:  # hardcoded maximum width, good for debugging; should be 16 for A4 and legal
                     #     sys.stderr.write(f"DIAGRAM OVERFLOW {centimetres}:{old_peg}\n")
 
                     keyvals_code = copy.deepcopy(keyvals)
