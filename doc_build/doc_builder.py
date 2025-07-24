@@ -113,6 +113,8 @@ class DocBuilder:
             "-F",
             self.get_filter("convert_mathblocks"),
             "-F",
+            self.get_filter("header6"),
+            "-F",
             self.get_filter("resolve_sections"),
             "-F",
             self.get_filter("sections_new_page"),

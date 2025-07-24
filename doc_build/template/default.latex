@@ -41,8 +41,8 @@ $endif$
 \lstset{basicstyle=\ttfamily}
 \newcommand{\CodeEmphasis}[1]{\textcolor{black}{\textbf{#1}}}
 \newcommand{\CodeEmphasisLine}[1]{\textcolor{black}{\textbf{#1}}}
-\let\originAlParaGraph\paragraph
-\renewcommand{\paragraph}[1]{\originAlParaGraph{#1} \hfill}
+% \let\originAlParaGraph\paragraph
+% \renewcommand{\paragraph}[1]{\originAlParaGraph{#1} \hfill}
 $after-header-includes.latex()$
 $hypersetup.latex()$
 
