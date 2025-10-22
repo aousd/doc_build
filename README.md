@@ -23,6 +23,8 @@ We recommend the following structure in your Git repo.
 
 We recommend using [pixi](https://pixi.sh/) to setup the Python environment necessary to build your doc with `pandoc`. You can use the following config file to setup your project:
 
+**NOTE**: Make sure to use the latest commit from this repo and replace that in the rev below.
+
 **pyproject.toml**
 ```toml
 [project]
@@ -39,7 +41,7 @@ preview = ["pixi-build"]
 
 [tool.pixi.dependencies]
 # Update "rev" to the latest SHA1 on the doc_build repository
-doc_build = { git = "ssh://git@github.com/aousd/doc_build.git", rev = "973aed5019bd43175cdbb11830380f694301dbbd" }
+doc_build = { git = "ssh://git@github.com/aousd/doc_build.git", rev = "77d330fb1adc2f22fa5d2a814aebc0e25cda793e" }
 
 [tool.pixi.tasks]
 # Update this command if you use a different folder structure
