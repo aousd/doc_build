@@ -1,6 +1,6 @@
 # Copyright License Agreement for AOUSD Draft Deliverables for Internal Evaluation
 
-By exercising the rights granted hereunder, You (as defined below) accept and agree to be bound by the terms and conditions set forth in this Copyright License Agreement for AOUSD Draft Deliverables for Internal Evaluation (the “Agreement”).  Capitalized terms used but not defined in this Agreement shall have the meanings ascribed to them in the AOUSD Project Charter and/or applicable AOUSD Working Group Charter available at www.aousd.org.
+By exercising the rights granted hereunder, You (as defined below) accept and agree to be bound by the terms and conditions set forth in this Copyright License Agreement for AOUSD Draft Deliverables for Internal Evaluation (the “Agreement”).  Capitalized terms used but not defined in this Agreement shall have the meanings ascribed to them in the AOUSD Project Charter and/or applicable AOUSD Working Group Charter available at [www.aousd.org](www.aousd.org).
 
 ## Definitions
 
@@ -26,7 +26,9 @@ IN NO EVENT SHALL AOUSD OR ANY OF ITS MEMBERS BE LIABLE FOR ANY DIRECT, INDIRECT
 
 ## Contributions
 
-To the extent You provide any Contributions to AOUSD, you agree to license said Contributions under the AOUSD Non-Member Agreement available at https://www.linuxfoundation.org/hubfs/AOUSD/20250919_AOUSD%20Non%20Member%20Agreement_Extracted.pdf.  Notwithstanding anything to the contrary, any Contributions provided by a member of the AOUSD Working Group that produced the AOUSD Draft Deliverable licensed hereunder shall continue to be subject to the licensing terms specified by said AOUSD Working Group’s charter.  
+To the extent You provide any Contributions to AOUSD, you agree to license said Contributions under the AOUSD Non-Member Agreement available at
+ [https://www.linuxfoundation.org/hubfs/AOUSD/20250919_AOUSD%20Non%20Member%20Agreement_Extracted.pdf](https://www.linuxfoundation.org/hubfs/AOUSD/20250919_AOUSD%20Non%20Member%20Agreement_Extracted.pdf).
+ Notwithstanding anything to the contrary, any Contributions provided by a member of the AOUSD Working Group that produced the AOUSD Draft Deliverable licensed hereunder shall continue to be subject to the licensing terms specified by said AOUSD Working Group’s charter.  
 
 You warrant to the best of Your knowledge that You have rights to provide these Contributions.  You also acknowledge that AOUSD is not required to incorporate Your Contributions into any version of the Materials.
 
