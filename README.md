@@ -1,6 +1,11 @@
-# Shared Document Build
+# AOUSD Shared Document Build
 
-This repository includes shared document build code for all working groups at the AOUSD.
+This repository includes shared document build code for all working groups at the Alliance for OpenUSD (AOUSD).
+
+This is not meant for use outside the AOUSD, and no support is provided for other uses.
+
+The repository uses the Apache 2.0 license, though dependencies might have their own licenses to be considered.
+
 
 It combines multiple markdown files into a single document, and
 typesets them using [Pandoc](https://pandoc.org) with the
