@@ -41,7 +41,7 @@ preview = ["pixi-build"]
 
 [tool.pixi.dependencies]
 # Update "rev" to the latest SHA1 on the doc_build repository
-doc_build = { git = "ssh://git@github.com/aousd/doc_build.git", rev = "ec79f76f4df422a0ceba95311973f792a8d3c27d" }
+doc_build = { git = "https://github.com/aousd/doc_build.git", rev = "deac5197ed7476269bb62a3db699f8608770b628" }
 
 [tool.pixi.tasks]
 # Update this command if you use a different folder structure
