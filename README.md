@@ -12,7 +12,7 @@ typesets them using [Pandoc](https://pandoc.org) with the
  [Tectonic](https://tectonic-typesetting.github.io/en-US/) 
  PDF engine.
 
- The body text is set in *Georgia* sized at 10pt, with monospaced content in *Menlo* at 8pt.
+ The body text is set in *DejaVu Serif* sized at 10pt, with monospaced content in *DejaVu Sans Mono* at 8pt.
 
 ## Setup
 

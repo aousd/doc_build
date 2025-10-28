@@ -136,9 +136,9 @@ class DocBuilder:
             "-V",
             "fontsize=10pt",
             "-V",
-            "mainfont=Georgia",
+            "mainfont=DejaVu Serif",
             "-V",
-            "monofont=Menlo",
+            "monofont=DejaVu Sans Mono",
             # "-V",
             # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
