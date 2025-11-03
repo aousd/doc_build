@@ -111,6 +111,7 @@ Dependencies are automatically installed by [pixi](https://pixi.sh), and should 
 
 To automate CI in your specifications repo, add the following at `.github/workflows/build_docs.yml`
 
+But replace `<DOCUMENT_NAME>` with your documents output name
 
 ```yaml
 name: build_docs.yml
@@ -141,18 +142,18 @@ jobs:
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec
-          path: build/aousd_core_spec.pdf
+          name: <DOCUMENT_NAME>
+          path: build/<DOCUMENT_NAME>.pdf
       - name: Upload DOCX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec-docx
-          path: build/aousd_core_spec.docx
+          name: <DOCUMENT_NAME>-docx
+          path: build/<DOCUMENT_NAME>.docx
       - name: Upload HTML artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec-html
-          path: build/aousd_core_spec.html
+          name: <DOCUMENT_NAME>-html
+          path: build/<DOCUMENT_NAME>.html
 ```
 
 This will run on every PR update and upload the artifacts for you to download

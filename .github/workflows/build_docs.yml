@@ -26,15 +26,15 @@ jobs:
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec
-          path: tests/build/aousd_core_spec.pdf
+          name: aousd_doc_build
+          path: tests/build/aousd_doc_build.pdf
       - name: Upload DOCX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec-docx
-          path: tests/build/aousd_core_spec.docx
+          name: aousd_doc_build-docx
+          path: tests/build/aousd_doc_build.docx
       - name: Upload HTML artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aousd_core_spec-html
-          path: tests/build/aousd_core_spec.html
+          name: aousd_doc_build-html
+          path: tests/build/aousd_doc_build.html
