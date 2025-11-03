@@ -27,7 +27,7 @@ channels = [
     "https://prefix.dev/conda-forge",
 ]
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
-preview = ["pixi-build", "pixi-build-api-version"]
+preview = ["pixi-build"]
 
 [tool.pixi.package.host-dependencies]
 flit-core = ">=3.4"
@@ -40,4 +40,4 @@ librsvg = "*"
 tectonic = "*"
 
 [tool.pixi.package.build]
-backend = { name = "pixi-build-python", version = "0.1.*" }
+backend = { name = "pixi-build-python", version = "0.4.*" }
