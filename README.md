@@ -131,7 +131,7 @@ jobs:
       - name: Setup Pixi
         uses: prefix-dev/setup-pixi@v0.8.9
         with:
-          pixi-version: v0.48.1
+          pixi-version: v0.59.0
       - name: Install DejaVu fonts
         run: |
           sudo apt-get update
