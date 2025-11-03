@@ -34,7 +34,7 @@ description = "Build scripts for my WG spec"
 requires-python = ">= 3.10"
 dependencies = []
 
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = [ "conda-forge" ]
 platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 preview = ["pixi-build"]
@@ -106,3 +106,54 @@ methods and may or may not work.
 ### Dependencies
 
 Dependencies are automatically installed by [pixi](https://pixi.sh), and should work on macOS/Linux/Windows.
+
+### Setting Up CI
+
+To automate CI in your specifications repo, add the following at `.github/workflows/build_docs.yml`
+
+But replace `<DOCUMENT_NAME>` with your documents output name
+
+```yaml
+name: build_docs.yml
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [ opened, synchronize ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.9
+        with:
+          pixi-version: v0.48.1
+      - name: Install DejaVu fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu
+          fc-cache -fv
+      - name: Build PDF
+        run: pixi run main build
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: <DOCUMENT_NAME>
+          path: build/<DOCUMENT_NAME>.pdf
+      - name: Upload DOCX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: <DOCUMENT_NAME>-docx
+          path: build/<DOCUMENT_NAME>.docx
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: <DOCUMENT_NAME>-html
+          path: build/<DOCUMENT_NAME>.html
+```
+
+This will run on every PR update and upload the artifacts for you to download

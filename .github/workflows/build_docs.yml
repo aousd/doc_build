@@ -1,0 +1,40 @@
+name: build_docs.yml
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [ opened, synchronize ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.8.9
+        with:
+          pixi-version: v0.48.1
+      - name: Install DejaVu fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu
+          fc-cache -fv
+      - name: Build PDF
+        run: pixi run test build
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aousd_doc_build
+          path: tests/build/aousd_doc_build.pdf
+      - name: Upload DOCX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aousd_doc_build-docx
+          path: tests/build/aousd_doc_build.docx
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aousd_doc_build-html
+          path: tests/build/aousd_doc_build.html
