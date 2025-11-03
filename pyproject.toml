@@ -27,7 +27,7 @@ channels = [
     "https://prefix.dev/conda-forge",
 ]
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
-preview = ["pixi-build"]
+preview = ["pixi-build", "pixi-build-api-version"]
 
 [tool.pixi.package.host-dependencies]
 flit-core = ">=3.4"
