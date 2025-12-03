@@ -122,3 +122,32 @@ $endif$
 \newpage
 \pagenumbering{arabic}
 }
+
+\setmainfont{DejaVuSerif.ttf}[
+  Path = $dejavufontpath$,
+  Extension = .ttf,
+  BoldFont = *-Bold,
+  ItalicFont = *-Italic,
+  BoldItalicFont = *-BoldItalic,
+]
+
+\setmonofont{DejaVuSansMono.ttf}[
+  Path = $dejavufontpath$,
+  Scale=MatchLowercase,
+  Extension = .ttf,
+  BoldFont = *-Bold,
+  ItalicFont = *-Oblique,
+  BoldItalicFont = *-BoldOblique,
+]
+
+\setmathfont{DejaVuMathTeXGyre.ttf}[
+  Path = $dejavufontpath$,
+]
+
+\setsansfont{DejaVuSans.ttf}[
+  Path = $dejavufontpath$,
+  Extension = .ttf,
+  BoldFont = *-Bold,
+  ItalicFont = *-Oblique,
+  BoldItalicFont = *-BoldOblique,
+]
