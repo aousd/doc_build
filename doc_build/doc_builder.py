@@ -102,6 +102,7 @@ class DocBuilder:
         subtitle = self.get_subtitle(spec)
 
         fontpath = (Path(__file__).resolve().parent / "front_page").as_posix() + "/"
+        dejavufontpath = (Path(__file__).resolve().parent / "fonts").as_posix() + "/"
 
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
         os.chdir(self.get_artifacts_dir(args.output))
@@ -125,6 +126,8 @@ class DocBuilder:
             "-V",
             f"fontpath={fontpath}",
             "-V",
+            f"dejavufontpath={dejavufontpath}",
+            "-V",
             f"subtitle={subtitle}",
             "-V",
             "geometry:margin=1in",
@@ -135,10 +138,10 @@ class DocBuilder:
             "linestretch=1.25",
             "-V",
             "fontsize=10pt",
-            "-V",
-            "mainfont=DejaVu Serif",
-            "-V",
-            "monofont=DejaVu Sans Mono",
+            # "-V",
+            # "mainfont=DejaVu Serif",
+            # "-V",
+            # "monofont=DejaVu Sans Mono",
             # "-V",
             # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
