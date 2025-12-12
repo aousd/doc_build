@@ -247,7 +247,9 @@ class DocBuilder:
 
         self.flatten(args, entry_point, combined, substitutions=substitutions)
 
-        if not args.no_draft:
+        if args.no_draft:
+            self.add_publish_copyright(combined)
+        else:
             self.add_draft_copyright(combined)
 
         return combined
@@ -627,6 +629,24 @@ class DocBuilder:
         )
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
+
+    def add_publish_copyright(self, combined):
+        intro_copyright = self.get_publish_intro_legalese()
+        outro = self.get_publish_outro_legalese()
+        content = self._read_file(combined)
+
+        with open(combined, "w", encoding="utf-8") as f:
+            f.write(intro_copyright)
+            f.write(content)
+            f.write(outro)
+
+    def get_publish_intro_legalese(self):
+        path = self.get_scripts_root() / "legal/publish_intro.md"
+        return self._read_file(path)
+
+    def get_publish_outro_legalese(self):
+        path = self.get_scripts_root() / "legal/publish_outro.md"
+        return self._read_file(path)
 
     def add_draft_copyright(self, combined):
         intro_copyright = self.get_intro_legalese()
