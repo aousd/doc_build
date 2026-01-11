@@ -104,6 +104,10 @@ class DocBuilder:
         fontpath = (Path(__file__).resolve().parent / "front_page").as_posix() + "/"
         dejavufontpath = (Path(__file__).resolve().parent / "fonts").as_posix() + "/"
 
+        doc_build_filters = []
+        for doc_filter in self.get_doc_build_filters():
+            doc_build_filters.extend(["-F", doc_filter])
+
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
         os.chdir(self.get_artifacts_dir(args.output))
         shared_command = [
@@ -111,16 +115,7 @@ class DocBuilder:
             spec,
             combined,
             "--from=gfm+",
-            "-F",
-            self.get_filter("convert_mathblocks"),
-            "-F",
-            self.get_filter("header6"),
-            "-F",
-            self.get_filter("resolve_sections"),
-            "-F",
-            self.get_filter("sections_new_page"),
-            "-F",
-            self.get_filter("smaller_listings"),
+            *doc_build_filters,
             "-V",
             f"date={datetime.today().strftime('%Y-%m-%d')}",
             "-V",
@@ -227,6 +222,16 @@ class DocBuilder:
             pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
         return pdf, docx, html
+
+    def get_doc_build_filters(self):
+        """Return a list of paths to the filters the build_doc method runs in the order they must run"""
+        return [
+            self.get_filter("convert_mathblocks"),
+            self.get_filter("header6"),
+            self.get_filter("resolve_sections"),
+            self.get_filter("sections_new_page"),
+            self.get_filter("smaller_listings"),
+        ]
 
     def get_file_base_name(self):
         tokens = ["aousd"]
