@@ -226,6 +226,7 @@ class DocBuilder:
     def get_doc_build_filters(self):
         """Return a list of paths to the filters the build_doc method runs in the order they must run"""
         return [
+            self.get_filter("decorate_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
             self.get_filter("resolve_sections"),
