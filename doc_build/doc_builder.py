@@ -114,7 +114,6 @@ class DocBuilder:
             "--defaults",
             spec,
             combined,
-            "--from=gfm+",
             *doc_build_filters,
             "-V",
             f"date={datetime.today().strftime('%Y-%m-%d')}",
