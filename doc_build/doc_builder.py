@@ -20,6 +20,15 @@ if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
 
 
+class _OneOrTwoArgsAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values is not None and hasattr(values, "__len__") and len(values) > 2:
+            raise argparse.ArgumentError(
+                self, f"{option_string} takes 1 or 2 arguments, got {len(values)}"
+            )
+        setattr(namespace, self.dest, values)
+
+
 class Logger:
 
     def __log(self, msg, *args, **kwargs):
@@ -89,6 +98,11 @@ class DocBuilder:
         if args.clean:
             self.clean_docs(args)
 
+        if args.diff:
+            if len(args.diff) == 1:
+                args.diff.append("HEAD")
+            elif len(args.diff) > 2:
+                raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
 
         shutil.copytree(
@@ -589,6 +603,17 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
+        )
+        # TODO: implement support (ie, use 'args.diff')
+        build_parser.add_argument(
+            "--diff",
+            nargs="+",
+            metavar=("from_commit", "to_commit"),
+            action=_OneOrTwoArgsAction,
+            help="Generate a document showing a diff between the given commits; "
+                "if `to_commit` is not given, it defaults to HEAD. Commits may "
+                "be git hashes, branch names, tags, or any other valid git "
+                "reference understood by `git rev-parse`",
         )
 
         return build_parser
