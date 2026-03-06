@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional, Union
 
 try:
     import yaml
@@ -89,8 +89,17 @@ git = ExecCommand("git")
 
 
 class DocBuilder:
-    def __init__(self):
+    def __init__(self, *, repo_root: Optional[Union[Path, str]] = None):
         super().__init__()
+        if repo_root is not None:
+            self._repo_root = Path(repo_root)
+        else:
+            self._repo_root = Path(
+                git.get_output(
+                    ["rev-parse", "--show-toplevel"],
+                    cwd=self._get_class_file().parent,
+                ).strip()
+            )
 
     # MARK: Target Functions
     def build_docs(self, args):
@@ -490,7 +499,7 @@ class DocBuilder:
         return Path(__file__).resolve().parent
 
     def get_repo_root(self) -> Path:
-        return Path(git.get_output(["rev-parse", "--show-toplevel"], cwd=self._get_class_file().parent).strip())
+        return self._repo_root
 
     def get_specification_root(self) -> Path:
         return self.get_repo_root() / "specification"
