@@ -94,7 +94,12 @@ class DocBuilder:
         if repo_root is not None:
             self._repo_root = Path(repo_root)
         else:
-            self._repo_root = self._get_class_file().parent.parent
+            self._repo_root = Path(
+                git.get_output(
+                    ["rev-parse", "--show-toplevel"],
+                    cwd=self._get_class_file().parent,
+                ).strip()
+            )
 
     # MARK: Target Functions
     def build_docs(self, args):
