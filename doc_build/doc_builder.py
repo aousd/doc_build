@@ -490,8 +490,7 @@ class DocBuilder:
         return Path(__file__).resolve().parent
 
     def get_repo_root(self) -> Path:
-        """Assumes that the repo root is two up from this root"""
-        return self._get_class_file().parent.parent
+        return Path(git.get_output(["rev-parse", "--show-toplevel"], cwd=self._get_class_file().parent).strip())
 
     def get_specification_root(self) -> Path:
         return self.get_repo_root() / "specification"
