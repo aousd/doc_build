@@ -50,12 +50,12 @@ def find_longest_common_subsequence(list_a: NodeList, list_b: NodeList) -> NodeL
     """
     m, n = len(list_a), len(list_b)
     dp = [[[] for _ in range(n + 1)] for _ in range(m + 1)]
+    a_strs = [json.dumps(node, sort_keys=True) for node in list_a]
+    b_strs = [json.dumps(node, sort_keys=True) for node in list_b]
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            if json.dumps(list_a[i - 1], sort_keys=True) == json.dumps(
-                list_b[j - 1], sort_keys=True
-            ):
+            if a_strs[i - 1] == b_strs[j - 1]:
                 dp[i][j] = dp[i - 1][j - 1] + [list_a[i - 1]]
             else:
                 if len(dp[i - 1][j]) > len(dp[i][j - 1]):
