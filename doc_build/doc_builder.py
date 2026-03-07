@@ -113,13 +113,7 @@ class DocBuilder:
             elif len(args.diff) > 2:
                 raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
-
-        shutil.copytree(
-            self.get_specification_root(),
-            self.get_artifacts_dir(args.output),
-            dirs_exist_ok=True,
-        )
-        combined = self.preprocess_build(args)
+        combined = self._setup_and_preprocess(args)
 
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
@@ -322,6 +316,15 @@ class DocBuilder:
                     else:
                         out.write(line)
 
+    def _setup_and_preprocess(self, args):
+        """Copy specification into artifacts dir and run preprocess_build. Caller must ensure args.output exists."""
+        shutil.copytree(
+            self.get_specification_root(),
+            self.get_artifacts_dir(args.output),
+            dirs_exist_ok=True,
+        )
+        return self.preprocess_build(args)
+
     def clean_docs(self, args):
         if args.output.exists():
             shutil.rmtree(args.output)
@@ -520,10 +523,15 @@ class DocBuilder:
 
     # MARK: Utility Functions
 
+    def resolve_ref(self, ref: str, short: bool = False) -> str:
+        """Resolve a git ref (branch, tag, hash) to a commit hash in the repo."""
+        args = ["rev-parse", "--short", ref] if short else ["rev-parse", ref]
+        return git.get_output(args, cwd=self.get_repo_root()).strip()
+
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = git.get_output(["rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()).strip()
+            commit = self.resolve_ref("HEAD", short=True)
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
