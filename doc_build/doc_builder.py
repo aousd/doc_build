@@ -7,9 +7,12 @@ import sys
 import os
 import re
 import time
+import types
 from pathlib import Path
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional, Union
+
+from doc_build.ast_diff import diff_ast_files
 
 try:
     import yaml
@@ -19,6 +22,8 @@ except ImportError:
 if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
 
+
+MARKDOWN_FORMAT = "markdown-hard_line_breaks"
 
 class _OneOrTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -89,8 +94,17 @@ git = ExecCommand("git")
 
 
 class DocBuilder:
-    def __init__(self):
+    def __init__(self, *, repo_root: Optional[Union[Path, str]] = None):
         super().__init__()
+        if repo_root is not None:
+            self._repo_root = Path(repo_root)
+        else:
+            self._repo_root = Path(
+                git.get_output(
+                    ["rev-parse", "--show-toplevel"],
+                    cwd=self._get_class_file().parent,
+                ).strip()
+            )
 
     # MARK: Target Functions
     def build_docs(self, args):
@@ -104,13 +118,16 @@ class DocBuilder:
             elif len(args.diff) > 2:
                 raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
+        self.get_artifacts_dir(args.output).mkdir(parents=True, exist_ok=True)
 
-        shutil.copytree(
-            self.get_specification_root(),
-            self.get_artifacts_dir(args.output),
-            dirs_exist_ok=True,
-        )
-        combined = self.preprocess_build(args)
+        if args.diff:
+            combined = self.generate_combined_diff(
+                args, args.diff[0], args.diff[1]
+            )
+            filename = combined.stem
+        else:
+            combined = self._setup_and_preprocess(args)
+            filename = self.get_file_base_name()
 
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
@@ -164,7 +181,7 @@ class DocBuilder:
             "2",
             "--standalone",
             "--number-sections=true",
-            "--from=markdown-hard_line_breaks",
+            "--from", MARKDOWN_FORMAT,
             "--pdf-engine=tectonic",
         ]
 
@@ -175,8 +192,6 @@ class DocBuilder:
         pdf = None
         docx = None
         html = None
-
-        filename = self.get_file_base_name()
 
         if not args.no_html:
             html = args.output / f"{filename}.html"
@@ -312,6 +327,73 @@ class DocBuilder:
 
                     else:
                         out.write(line)
+
+    def _setup_and_preprocess(self, args):
+        """Copy specification into artifacts dir and run preprocess_build. Caller must ensure args.output exists."""
+        shutil.copytree(
+            self.get_specification_root(),
+            self.get_artifacts_dir(args.output),
+            dirs_exist_ok=True,
+        )
+        return self.preprocess_build(args)
+
+    def _build_combined_for_ref(self, args, ref, worktree_path, output_subdir):
+        """Build combined.md for a given ref using a temporary worktree. Removes worktree in finally."""
+        worktree_path = Path(worktree_path)
+        output_dir = Path(args.output) / output_subdir
+        try:
+            git(
+                ["worktree", "add", str(worktree_path), ref],
+                cwd=self.get_repo_root(),
+            )
+            builder = self.__class__(repo_root=worktree_path)
+            ref_args = types.SimpleNamespace(
+                output=output_dir,
+                no_draft=getattr(args, "no_draft", False),
+                only=getattr(args, "only", []),
+                exclude=getattr(args, "exclude", []),
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return builder._setup_and_preprocess(ref_args)
+        finally:
+            try:
+                git(
+                    ["worktree", "remove", str(worktree_path)],
+                    cwd=self.get_repo_root(),
+                )
+            except subprocess.CalledProcessError:
+                pass
+
+    def generate_combined_diff(self, args, from_ref, to_ref):
+        """Build combined diff markdown from two refs; returns path to diff_X_Y.md."""
+        from_short = self.resolve_ref(from_ref, short=True)
+        to_short = self.resolve_ref(to_ref, short=True)
+        diff_basename = f"diff_{from_short}_{to_short}"
+        diff_dir = args.output / "diff"
+        diff_dir.mkdir(parents=True, exist_ok=True)
+        worktree_from = diff_dir / "wt_from"
+        worktree_to = diff_dir / "wt_to"
+        combined_from = self._build_combined_for_ref(
+            args, from_ref, worktree_from, "diff_from"
+        )
+        combined_to = self._build_combined_for_ref(
+            args, to_ref, worktree_to, "diff_to"
+        )
+        ast_from = diff_dir / "ast_from.json"
+        ast_to = diff_dir / "ast_to.json"
+        pandoc(["-f", MARKDOWN_FORMAT, "-t", "json", "-o", ast_from, combined_from])
+        pandoc(["-f", MARKDOWN_FORMAT, "-t", "json", "-o", ast_to, combined_to])
+        diff_ast_path = diff_dir / f"{diff_basename}.json"
+        diff_ast_files(
+            str(ast_from), str(ast_to), str(diff_ast_path)
+        )
+        # Not strictly necessary (Pandoc can take JSON as input), but converting
+        # to markdown unifies the pipeline with the non-diff path and eases debugging.
+        combined_diff_md = diff_dir / f"{diff_basename}.md"
+        pandoc(
+            ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
+        )
+        return combined_diff_md
 
     def clean_docs(self, args):
         if args.output.exists():
@@ -490,8 +572,7 @@ class DocBuilder:
         return Path(__file__).resolve().parent
 
     def get_repo_root(self) -> Path:
-        """Assumes that the repo root is two up from this root"""
-        return self._get_class_file().parent.parent
+        return self._repo_root
 
     def get_specification_root(self) -> Path:
         return self.get_repo_root() / "specification"
@@ -512,10 +593,15 @@ class DocBuilder:
 
     # MARK: Utility Functions
 
+    def resolve_ref(self, ref: str, short: bool = False) -> str:
+        """Resolve a git ref (branch, tag, hash) to a commit hash in the repo."""
+        args = ["rev-parse", "--short", ref] if short else ["rev-parse", ref]
+        return git.get_output(args, cwd=self.get_repo_root()).strip()
+
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = git.get_output(["rev-parse", "--short", "HEAD"], cwd=self.get_repo_root()).strip()
+            commit = self.resolve_ref("HEAD", short=True)
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
@@ -604,7 +690,6 @@ class DocBuilder:
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
         )
-        # TODO: implement support (ie, use 'args.diff')
         build_parser.add_argument(
             "--diff",
             nargs="+",

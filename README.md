@@ -92,6 +92,7 @@ The following subcommands are available:
     * `--clean`: Runs the cleanup subcommand before running
     * `--only`/`--exclude`: Limits which sections get inlined during processing
     * `--no-draft`: Turns off the draft waterman on the PDF
+    * `--diff from_ref [to_ref]`: Build a document showing changes between two Git refs (e.g. commits, branches, or tags). If `to_ref` is omitted it defaults to `HEAD`. The build uses temporary worktrees to produce combined markdown for each ref, diffs the Pandoc ASTs, then runs the usual pipeline on the annotated diff; output files are named like `diff_<short_from>_<short_to>.pdf`.
 * `clean`: Cleans any build artifacts.
 * `lint`: Lints the build output for common issues.
 * `export`: Exports the git archive to a zip for sharing.
@@ -102,6 +103,17 @@ The following subcommands are available:
 
 Only the `build` subcommand is routinely tested and supported. The others are convenience
 methods and may or may not work.
+
+#### Diff workflow (`--diff`)
+
+When `--diff from_ref [to_ref]` is used, the builder does not build from the current working tree. Instead it:
+
+1. Creates temporary Git worktrees at `from_ref` and `to_ref` (defaulting `to_ref` to `HEAD`).
+2. For each ref, runs the usual preprocessing (flatten specification into a single combined markdown file).
+3. Converts each combined markdown to a Pandoc JSON AST, diffs the two ASTs to produce an annotated diff (added/removed blocks), and converts the diff AST back to markdown.
+4. Runs the normal Pandoc pipeline (filters, PDF/HTML/DOCX) on that combined diff markdown.
+
+Outputs are written under the normal build output directory with base name `diff_<short_from>_<short_to>` so they do not overwrite a regular build.
 
 ### Dependencies
 
