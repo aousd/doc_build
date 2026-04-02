@@ -24,6 +24,7 @@ if sys.version_info < (3, 10):
 
 
 MARKDOWN_FORMAT = "markdown-hard_line_breaks"
+COMBINED_SPEC_FILENAME = "combined_spec.md"
 
 class _OneOrTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -455,7 +456,7 @@ class DocBuilder:
     def build_index(self, args):
         log(f"Building index from {args.output}...")
         artifacts = self.get_artifacts_dir(args.output)
-        source = artifacts / "usd_spec.md"
+        source = artifacts / COMBINED_SPEC_FILENAME
         output_md = artifacts / "index.md"
         output_tsv = args.output / "index.tsv"
 
@@ -606,7 +607,7 @@ class DocBuilder:
         return subtitle
 
     def get_combined_file_name(self, output_path: Path) -> Path:
-        return self.get_artifacts_dir(output_path) / "usd_spec.md"
+        return self.get_artifacts_dir(output_path) / COMBINED_SPEC_FILENAME
 
     def get_filter(self, name: str) -> Path:
         path = self.get_scripts_root() / "filters" / f"filter_{name}.py"
