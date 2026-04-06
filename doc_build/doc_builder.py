@@ -23,6 +23,11 @@ if sys.version_info < (3, 10):
     sys.exit("Python 3.10 or greater is required.")
 
 
+# The output format for the published aousd_core_spec.md file.  We want it to be
+# in a widely / known format, that still has a decent set of extensions to
+# enable features used in these documents, so we again go with `gfm`.
+MARKDOWN_OUTPUT_FORMAT = "gfm"
+
 MARKDOWN_FORMAT = "markdown-hard_line_breaks"
 COMBINED_SPEC_FILENAME = "combined_spec.md"
 
@@ -193,6 +198,13 @@ class DocBuilder:
         pdf = None
         docx = None
         html = None
+        md = None
+
+        if not args.no_md:
+            md = args.output / f"{filename}.md"
+            md_template = self.get_scripts_root() / "template" / "default.md"
+            log(f"\tBuilding Markdown to {md}...")
+            pandoc(shared_command + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
 
         if not args.no_html:
             html = args.output / f"{filename}.html"
@@ -250,7 +262,7 @@ class DocBuilder:
             log(f"\tBuilding DocX to {docx}...")
             pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
-        return pdf, docx, html
+        return pdf, docx, html, md
 
     def get_doc_build_filters(self):
         """Return a list of paths to the filters the build_doc method runs in the order they must run"""
@@ -672,6 +684,9 @@ class DocBuilder:
 
         build_parser.add_argument(
             "--no-html", help="Do not build HTML", action="store_true"
+        )
+        build_parser.add_argument(
+            "--no-md", help="Do not build Markdown", action="store_true"
         )
         build_parser.add_argument(
             "--no-pdf", help="Do not build PDF", action="store_true"
