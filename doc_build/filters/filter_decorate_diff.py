@@ -36,9 +36,13 @@ def style_inlines(inlines: List[Dict], Wrapper: Type) -> List[Dict]:
             if t == "Str" and not c:  # Skip empty strings
                 continue
             new_list.append(Wrapper([inline]))
-        elif t in ["Emph", "Strong", "Quoted"]:
+        elif t in ["Emph", "Strong"]:
             styled_content = style_inlines(c, Wrapper)
             new_list.append({"t": t, "c": styled_content})
+        elif t == "Quoted":
+            quote_type, quoted_inlines = c
+            styled_content = style_inlines(quoted_inlines, Wrapper)
+            new_list.append({"t": t, "c": [quote_type, styled_content]})
         elif t == "Link":
             attr, link_text, target = c
             styled_link_text = style_inlines(link_text, Wrapper)
