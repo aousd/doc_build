@@ -96,8 +96,8 @@ def create_diagram(key, value, format, metadata):
                 while (new := rule.simplify()) != rule:
                     rule = new
                 if not isinstance(rule, Nothing):
-                    filename = f"{build_directory}/{part_name}_{counter}.svg"
-                    f = open(filename, "w")
+                    abs_filename = f"{build_directory}/{part_name}_{counter}.svg"
+                    f = open(abs_filename, "w")
                     structured = split_for_stack(rule.as_railroad())
                     diagram = railroad.Diagram(structured)
                     diagram.writeStandalone(f.write)
@@ -126,7 +126,7 @@ def create_diagram(key, value, format, metadata):
 
                     return [
                         CodeBlock([ident, classes, keyvals_code], code),
-                        Para([Image([ident, [], keyvals], caption, [filename, typef])]),
+                        Para([Image([ident, [], keyvals], caption, [abs_filename, typef])]),
                     ]
 
 
