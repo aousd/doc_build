@@ -115,6 +115,40 @@ When `--diff from_ref [to_ref]` is used, the builder does not build from the cur
 
 Outputs are written under the normal build output directory with base name `diff_<short_from>_<short_to>` so they do not overwrite a regular build.
 
+## Development
+
+### Running Tests
+
+All test commands are run from the repository root with `pixi run <task>`.
+
+| Task | Command | Description |
+|------|---------|-------------|
+| `test` | `pixi run test` | Run the full test suite (build + build-diff) |
+| `build` | `pixi run build` | Build the test specification documents (HTML, PDF, DOCX) |
+| `build-diff` | `pixi run build-diff` | End-to-end diff pipeline test (see below) |
+
+`pixi run test` is the standard entry point.
+Output lands in `tests/build/`.
+
+#### Diff pipeline test (`build-diff`)
+
+`pixi run build-diff` exercises the full `--diff` code path in `DocBuilder`
+using the fixture files in `tests/diff_specification/` (`before.md` and `after.md`).
+It creates a temporary git repository, makes two commits (before/after), then calls
+`DocBuilder.build_docs()` with `--diff`. Nine output files are written to `tests/build/`:
+
+| File | Description |
+|------|-------------|
+| `diff_test-1-before.{html,pdf,md}` | Plain render of the "before" fixture |
+| `diff_test-2-after.{html,pdf,md}` | Plain render of the "after" fixture |
+| `diff_test-3-diff.{html,pdf,md}` | Diff render with insertion/deletion markup |
+
+Use `--html` or `--pdf` flags to limit which formats are built (Markdown is always built):
+
+```bash
+pixi run build-diff --html
+```
+
 ### Dependencies
 
 Dependencies are automatically installed by [pixi](https://pixi.sh), and should work on macOS/Linux/Windows.
