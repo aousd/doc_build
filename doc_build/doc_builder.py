@@ -29,7 +29,8 @@ if sys.version_info < (3, 10):
 MARKDOWN_OUTPUT_FORMAT = "gfm"
 
 MARKDOWN_FORMAT = "markdown-hard_line_breaks"
-COMBINED_SPEC_FILENAME = "combined_spec.md"
+COMBINED_SPEC_BASENAME = "combined_spec"
+COMBINED_SPEC_FILENAME = f"{COMBINED_SPEC_BASENAME}.md"
 
 class _OneOrTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -124,17 +125,25 @@ class DocBuilder:
             elif len(args.diff) > 2:
                 raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
-        artifacts_dir = self.get_artifacts_dir(args.output)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
-            combined = self.generate_combined_diff(
+            before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
                 args, args.diff[0], args.diff[1]
             )
-            filename = combined.stem
+            base = self.get_file_base_name()
+            self._render_combined(args, before_md, f"{base}.before_{from_short}", skip_docx=True)
+            self._render_combined(args, after_md, f"{base}.after_{to_short}", skip_docx=True)
+            return self._render_combined(
+                args, diff_md, f"{base}.diff_{from_short}_to_{to_short}", skip_docx=True
+            )
         else:
             combined = self._setup_and_preprocess(args)
-            filename = self.get_file_base_name()
+            return self._render_combined(args, combined, self.get_file_base_name())
+
+    def _render_combined(self, args, combined, filename, *, skip_docx=False):
+        """Render HTML, PDF, Markdown, and optionally DOCX from a combined markdown file."""
+        artifacts_dir = self.get_artifacts_dir(args.output)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
@@ -264,7 +273,7 @@ class DocBuilder:
                 stderr_processor=stderr_processor,
             )
 
-        if not args.no_docx:
+        if not args.no_docx and not skip_docx:
             docx = args.output / f"{filename}.docx"
             log(f"\tBuilding DocX to {docx}...")
             pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
@@ -385,10 +394,13 @@ class DocBuilder:
                 pass
 
     def generate_combined_diff(self, args, from_ref, to_ref):
-        """Build combined diff markdown from two refs; returns path to diff_X_Y.md."""
+        """Build combined diff markdown from two refs.
+
+        Returns (before_md, after_md, diff_md, from_short, to_short).
+        """
         from_short = self.resolve_ref(from_ref, short=True)
         to_short = self.resolve_ref(to_ref, short=True)
-        diff_basename = f"diff_{from_short}_{to_short}"
+        diff_basename = f"{COMBINED_SPEC_BASENAME}.diff_{from_short}_{to_short}"
         diff_dir = args.output / "diff"
         diff_dir.mkdir(parents=True, exist_ok=True)
         worktree_from = diff_dir / "wt_from"
@@ -413,7 +425,7 @@ class DocBuilder:
         pandoc(
             ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
         )
-        return combined_diff_md
+        return combined_from, combined_to, combined_diff_md, from_short, to_short
 
     def clean_docs(self, args):
         if args.output.exists():

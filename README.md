@@ -113,7 +113,9 @@ When `--diff from_ref [to_ref]` is used, the builder does not build from the cur
 3. Converts each combined markdown to a Pandoc JSON AST, diffs the two ASTs to produce an annotated diff (added/removed blocks), and converts the diff AST back to markdown.
 4. Runs the normal Pandoc pipeline (filters, PDF/HTML/DOCX) on that combined diff markdown.
 
-Outputs are written under the normal build output directory with base name `diff_<short_from>_<short_to>` so they do not overwrite a regular build.
+Outputs are written under the normal build output directory with names like
+`<base>.before_<from>.<ext>`, `<base>.after_<to>.<ext>`, and
+`<base>.diff_<from>_to_<to>.<ext>`, so they do not overwrite a regular build.
 
 ### Dependencies
 
