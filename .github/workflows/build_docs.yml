@@ -42,4 +42,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aousd_doc_build-diff
-          path: tests/build/diff_test-*
+          path: |
+            tests/build/diff*/aousd_doc_build*
+            tests/build/diff*/images/**

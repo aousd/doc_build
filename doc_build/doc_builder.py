@@ -29,7 +29,12 @@ if sys.version_info < (3, 10):
 MARKDOWN_OUTPUT_FORMAT = "gfm"
 
 MARKDOWN_FORMAT = "markdown-hard_line_breaks"
-COMBINED_SPEC_FILENAME = "combined_spec.md"
+COMBINED_SPEC_BASENAME = "combined_spec"
+COMBINED_SPEC_FILENAME = f"{COMBINED_SPEC_BASENAME}.md"
+
+DIFF_BEFORE_FILENAME_TEMPLATE = "{base}.before_{from_short}"
+DIFF_AFTER_FILENAME_TEMPLATE = "{base}.after_{to_short}"
+DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 
 class _OneOrTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -124,17 +129,76 @@ class DocBuilder:
             elif len(args.diff) > 2:
                 raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
-        artifacts_dir = self.get_artifacts_dir(args.output)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
-            combined = self.generate_combined_diff(
+            before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
                 args, args.diff[0], args.diff[1]
             )
-            filename = combined.stem
+            base = self.get_file_base_name()
+
+            # For an apples to apples comparison, we do a "final" render of the
+            # full 3x3 matrix of:
+            #  (before, after, diff) x (html, md, pdf)
+            self._render_combined(
+                args,
+                combined=before_md,
+                filename=DIFF_BEFORE_FILENAME_TEMPLATE.format(base=base, from_short=from_short),
+                skip_docx=True,
+                output_dir=args.output / "diff_from",
+            )
+            self._render_combined(
+                args,
+                combined=after_md,
+                filename=DIFF_AFTER_FILENAME_TEMPLATE.format(base=base, to_short=to_short),
+                skip_docx=True,
+                output_dir=args.output / "diff_to",
+            )
+            return self._render_combined(
+                args,
+                combined=diff_md,
+                filename=DIFF_DIFF_FILENAME_TEMPLATE.format(base=base, from_short=from_short, to_short=to_short),
+                skip_docx=True,
+                output_dir=args.output / "diff",
+            )
+            # If everything succeeds, we should have an output tree like this
+            # (not complete -other intermediate files will exist too...)
+            # ├── build
+            # │   ├── diff
+            # │   │   ├── aousd_doc_build.diff_<fromhash>_to_<tohash>.html,
+            # │   │   ├── aousd_doc_build.diff_<fromhash>_to_<tohash>.md
+            # │   │   ├── aousd_doc_build.diff_<fromhash>_to_<tohash>.pdf
+            # │   │   ├── images
+            # │   │   │   ├── ...
+            # │   ├── diff_from
+            # │   │   ├── aousd_doc_build.before_<fromhash>.html
+            # │   │   ├── aousd_doc_build.before_<fromhash>.md
+            # │   │   ├── aousd_doc_build.before_<fromhash>.pdf
+            # │   │   └── images
+            # │   │       ├── ...
+            # │   └── diff_to
+            # │       ├── aousd_doc_build.after_<tohash>.html
+            # │       ├── aousd_doc_build.after_<tohash>.md
+            # │       ├── aousd_doc_build.after_<tohash>.pdf
+            # │       └── images
+            # │           ├── ...
         else:
             combined = self._setup_and_preprocess(args)
-            filename = self.get_file_base_name()
+            return self._render_combined(args, combined, self.get_file_base_name())
+
+    def _render_combined(
+        self,
+        args,
+        combined,
+        filename,
+        *,
+        skip_docx=False,
+        output_dir: Path | None = None,
+    ):
+        """Render HTML, PDF, Markdown, and optionally DOCX from a combined markdown file."""
+        if output_dir is None:
+            output_dir = args.output
+        artifacts_dir = self.get_artifacts_dir(output_dir)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
@@ -202,11 +266,11 @@ class DocBuilder:
         md = None
 
         if not args.no_md:
-            md = args.output / f"{filename}.md"
+            md = output_dir / f"{filename}.md"
             md_template = self.get_scripts_root() / "template" / "default.md"
             bundle_images_filter = self.get_filter("bundle_images")
             bundle_images_args = [
-                "-M", f"AOUSD_OUTPUT_DIR={args.output}",
+                "-M", f"AOUSD_OUTPUT_DIR={output_dir}",
                 "-M", f"AOUSD_IMAGES_ROOT={artifacts_dir}",
                 "-F", bundle_images_filter,
             ]
@@ -214,7 +278,7 @@ class DocBuilder:
             pandoc(shared_command + bundle_images_args + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
 
         if not args.no_html:
-            html = args.output / f"{filename}.html"
+            html = output_dir / f"{filename}.html"
             html_template = self.get_scripts_root() / "template" / "default.html5"
             log(f"\tBuilding HTML to {html}...")
             pandoc(
@@ -231,7 +295,7 @@ class DocBuilder:
             )
 
         if not args.no_pdf:
-            pdf = args.output / f"{filename}.pdf"
+            pdf = output_dir / f"{filename}.pdf"
             latex_template = self.get_scripts_root() / "template" / "default.latex"
             log(f"\tBuilding PDF to {pdf}...")
 
@@ -264,8 +328,8 @@ class DocBuilder:
                 stderr_processor=stderr_processor,
             )
 
-        if not args.no_docx:
-            docx = args.output / f"{filename}.docx"
+        if not args.no_docx and not skip_docx:
+            docx = output_dir / f"{filename}.docx"
             log(f"\tBuilding DocX to {docx}...")
             pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
@@ -385,10 +449,17 @@ class DocBuilder:
                 pass
 
     def generate_combined_diff(self, args, from_ref, to_ref):
-        """Build combined diff markdown from two refs; returns path to diff_X_Y.md."""
+        """Build combined diff markdown from two refs.
+
+        Returns (before_md, after_md, diff_md, from_short, to_short).
+        """
         from_short = self.resolve_ref(from_ref, short=True)
         to_short = self.resolve_ref(to_ref, short=True)
-        diff_basename = f"diff_{from_short}_{to_short}"
+        diff_basename =DIFF_DIFF_FILENAME_TEMPLATE.format(
+            base=COMBINED_SPEC_BASENAME,
+            from_short=from_short,
+            to_short=to_short
+        )
         diff_dir = args.output / "diff"
         diff_dir.mkdir(parents=True, exist_ok=True)
         worktree_from = diff_dir / "wt_from"
@@ -429,7 +500,7 @@ class DocBuilder:
         pandoc(
             ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
         )
-        return combined_diff_md
+        return combined_from, combined_to, combined_diff_md, from_short, to_short
 
     def clean_docs(self, args):
         if args.output.exists():
