@@ -124,7 +124,8 @@ class DocBuilder:
             elif len(args.diff) > 2:
                 raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
         args.output.mkdir(parents=True, exist_ok=True)
-        self.get_artifacts_dir(args.output).mkdir(parents=True, exist_ok=True)
+        artifacts_dir = self.get_artifacts_dir(args.output)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
             combined = self.generate_combined_diff(
@@ -146,7 +147,7 @@ class DocBuilder:
             doc_build_filters.extend(["-F", doc_filter])
 
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
-        os.chdir(self.get_artifacts_dir(args.output))
+        os.chdir(artifacts_dir)
         shared_command = [
             "--defaults",
             spec,
@@ -176,7 +177,7 @@ class DocBuilder:
             # "-V",
             # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
-            f"AOUSD_ARTIFACTS_ROOT={self.get_artifacts_dir(args.output)}",
+            f"AOUSD_ARTIFACTS_ROOT={artifacts_dir}",
             "-V", "colorlinks=true",
             "-V", "linkcolor=OliveGreen",
             "-V", "toccolor=OliveGreen",
@@ -203,8 +204,14 @@ class DocBuilder:
         if not args.no_md:
             md = args.output / f"{filename}.md"
             md_template = self.get_scripts_root() / "template" / "default.md"
+            bundle_images_filter = self.get_filter("bundle_images")
+            bundle_images_args = [
+                "-M", f"AOUSD_OUTPUT_DIR={args.output}",
+                "-M", f"AOUSD_IMAGES_ROOT={artifacts_dir}",
+                "-F", bundle_images_filter,
+            ]
             log(f"\tBuilding Markdown to {md}...")
-            pandoc(shared_command + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
+            pandoc(shared_command + bundle_images_args + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
 
         if not args.no_html:
             html = args.output / f"{filename}.html"
