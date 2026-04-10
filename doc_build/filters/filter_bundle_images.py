@@ -22,24 +22,10 @@ import shutil
 from pathlib import Path
 
 from pandocfilters import toJSONFilter, Image
+from shared_filter_utils import get_metadata_str
 
 # Maps rel_key -> str(src_abs) for collision detection within a single pandoc run.
 _seen: dict[str, str] = {}
-
-
-def _get_metadata_str(metadata: dict, key: str) -> str:
-    """Extract a string value from pandoc filter metadata.
-
-    Handles both MetaString (produced by -M on the command line) and
-    MetaInlines (produced by --metadata-file YAML).
-    """
-    try:
-        entry = metadata[key]
-        if entry.get("t") == "MetaString":
-            return entry["c"]
-        return entry["c"][0]["c"]
-    except (KeyError, IndexError, TypeError) as e:
-        raise KeyError(f"Missing or malformed metadata key {key!r}: {e}") from e
 
 
 def _get_image_rel(src_abs: Path, images_root: Path) -> Path:
@@ -64,8 +50,8 @@ def bundle_image(key, value, _format, metadata):
 
     image_path = value[2][0]
 
-    images_root = Path(_get_metadata_str(metadata, "AOUSD_IMAGES_ROOT"))
-    output_dir = Path(_get_metadata_str(metadata, "AOUSD_OUTPUT_DIR"))
+    images_root = Path(get_metadata_str(metadata, "AOUSD_IMAGES_ROOT"))
+    output_dir = Path(get_metadata_str(metadata, "AOUSD_OUTPUT_DIR"))
 
     src = Path(image_path)
     if not src.is_absolute():

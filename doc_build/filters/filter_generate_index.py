@@ -3,6 +3,7 @@ import sys
 from collections import defaultdict
 from pandocfilters import toJSONFilter, RawBlock
 import string
+from shared_filter_utils import get_metadata_str
 
 # Stop words from https://github.com/stopwords-iso, MIT License
 stop_words = {
@@ -1324,7 +1325,7 @@ def normalized_words(key, value, format, metadata):
     if key == "Str":
         words[normalize_word(value)] += 1
 
-    OUTPUT = metadata["OUTPUT"]["c"][0]["c"]
+    OUTPUT = get_metadata_str(metadata, "OUTPUT")
 
     sorted_dict = dict(sorted(words.items(), key=lambda item: item[1]))
     with open(OUTPUT, "w") as f:

@@ -3,6 +3,7 @@ import copy
 import sys
 
 from pandocfilters import toJSONFilter, Para, Image, CodeBlock, get_caption
+from shared_filter_utils import get_metadata_str
 
 import io
 
@@ -67,8 +68,8 @@ def create_diagram(key, value, format, metadata):
         [[ident, classes, keyvals], code] = value
 
         if classes == ["peg"]:
-            build_directory = metadata["AOUSD_BUILD"]["c"][0]["c"]
-            part_name = metadata["PART"]["c"][0]["c"]
+            build_directory = get_metadata_str(metadata, "AOUSD_BUILD")
+            part_name = get_metadata_str(metadata, "PART")
 
             old_peg = "".join(code.split("\n"))
             # sys.stderr.write("Old:"+old_peg+"\n")
