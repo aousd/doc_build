@@ -401,8 +401,24 @@ class DocBuilder:
         )
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
-        pandoc(["-f", MARKDOWN_FORMAT, "-t", "json", "-o", ast_from, combined_from])
-        pandoc(["-f", MARKDOWN_FORMAT, "-t", "json", "-o", ast_to, combined_to])
+
+        # Note: we make sure image paths are absolute, so that they will still
+        # be valid from the diff output, which is in a different directory.
+        for (md_input, ast_output) in [(combined_from, ast_from), (combined_to, ast_to)]:
+            pandoc(
+                [
+                    md_input,
+                    "-f",
+                    MARKDOWN_FORMAT,
+                    "-t",
+                    "json",
+                    "-o",
+                    ast_output,
+                    f"--metadata=PATH={combined_from.parent}",
+                    f"--filter={self.get_filter("absolute_image_path")}",
+                ]
+            )
+
         diff_ast_path = diff_dir / f"{diff_basename}.json"
         diff_ast_files(
             str(ast_from), str(ast_to), str(diff_ast_path)
