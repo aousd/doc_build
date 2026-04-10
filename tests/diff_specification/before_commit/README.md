@@ -56,3 +56,13 @@ This paragraph will remain.
 This entire paragraph will be deleted from the document.
 
 This paragraph will also remain at the end.
+
+## Images
+
+An SVG image that does not change:
+
+![Blue circle](images/unchanged.svg)
+
+A PNG image that does not change:
+
+![Blue box](images/unchanged.png)
