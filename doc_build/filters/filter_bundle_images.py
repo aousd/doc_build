@@ -30,16 +30,11 @@ _seen: dict[str, str] = {}
 
 def _get_image_rel(src_abs: Path, images_root: Path) -> Path:
     """Compute destination relative path under images/, stripping 'images' components."""
-    try:
-        rel = src_abs.relative_to(images_root)
-    except ValueError:
-        raise ValueError(
-            f"Image path {src_abs} is not under images_root {images_root}"
-        )
-    parts = [p for p in rel.parts if p != "images"]
+    rel = src_abs.relative_to(images_root, walk_up=True)
+    parts = [p for p in rel.parts if p not in ("images", "..")]
     if not parts:
         raise ValueError(
-            f"Image {src_abs} reduces to an empty path after removing 'images' components"
+            f"Image {src_abs} reduces to an empty path after removing 'images' and '..' components"
         )
     return Path(*parts)
 
