@@ -1,0 +1,679 @@
+#!/usr/bin/env python3
+
+"""Pandoc filter that renders insertion/deletion/substitution Div blocks from
+ast_diff.py into format-specific diff markup (underline/strikeout, HTML
+ins/del tags, or LaTeX textcolor+strikeout).
+"""
+
+import json
+from typing import Any, Dict, List, Optional, Type
+
+from diff_match_patch import diff_match_patch
+from pandocfilters import Strikeout, toJSONFilter
+
+from doc_build.diff_colors import (
+    DIFF_SECTION_DEL_PALE_RED,
+    DIFF_SECTION_INS_PALE_GREEN,
+    DIFF_WORD_DEL_RED,
+    DIFF_WORD_INS_GREEN,
+)
+
+try:
+    from pandocfilters import Underline
+except ImportError:
+
+    def Underline(inlines: List[Dict]) -> Dict:
+        return {"t": "Underline", "c": inlines}
+
+
+###############################################################################
+# diff-match-patch operation constants
+###############################################################################
+
+DIFF_DELETE = -1
+DIFF_INSERT = 1
+DIFF_EQUAL = 0
+
+###############################################################################
+# HTML diff styling
+###############################################################################
+
+# Block-level backgrounds (pale) for insertion/deletion Divs
+_HTML_BLOCK_DIFF_BG_INSERTION = f"#{DIFF_SECTION_INS_PALE_GREEN}"
+_HTML_BLOCK_DIFF_BG_DELETION = f"#{DIFF_SECTION_DEL_PALE_RED}"
+
+# Word-level backgrounds (stronger) for span-level changes inside substitutions
+_HTML_WORD_DIFF_BG_INSERTION = f"#{DIFF_WORD_INS_GREEN}"
+_HTML_WORD_DIFF_BG_DELETION = f"#{DIFF_WORD_DEL_RED}"
+
+_HTML_BLOCK_DIFF_BG = {
+    "insertion": _HTML_BLOCK_DIFF_BG_INSERTION,
+    "deletion": _HTML_BLOCK_DIFF_BG_DELETION,
+}
+_HTML_WORD_DIFF_BG = {
+    "insertion": _HTML_WORD_DIFF_BG_INSERTION,
+    "deletion": _HTML_WORD_DIFF_BG_DELETION,
+}
+_HTML_TEXT_DECORATION = {
+    "insertion": "underline",
+    "deletion": "line-through",
+}
+
+###############################################################################
+# GFM diff styling
+###############################################################################
+
+# Colored square emojis used as line-level diff markers in GFM markdown output
+_GFM_EMOJI = {
+    "insertion": "\U0001f7e9",  # green square
+    "deletion": "\U0001f7e5",   # red square
+}
+
+# Pandoc passes "gfm" when the output format is gfm.  Only this format gets
+# GFM-compatible rendering (emoji block prefixes, <u>/~~ word-level markup).
+_GFM_FORMATS = frozenset({"gfm"})
+
+###############################################################################
+# LaTeX diff styling
+###############################################################################
+
+# Named colors defined in default.latex via \definecolor, values from diff_colors.py
+_LATEX_BLOCK_DIFF_BG = {
+    "insertion": "DiffSectionInsPaleGreen",
+    "deletion": "DiffSectionDelPaleRed",
+}
+_LATEX_WORD_DIFF_BG = {
+    "insertion": "DiffWordInsGreen",
+    "deletion": "DiffWordDelRed",
+}
+# ulem commands for text-only content: \uline for underline, \sout for strikethrough
+_LATEX_TEXT_CMD = {
+    "insertion": "\\uline",
+    "deletion": "\\sout",
+}
+# math-safe commands: \underline and \textsout (defined in latex_diff_preamble.tex)
+# Use when content contains inline math, which ulem cannot wrap.
+_LATEX_MATH_TEXT_CMD = {
+    "insertion": "\\underline",
+    "deletion": "\\textsout",
+}
+# pandoc's default shadecolor for Shaded/verbatim environments
+_LATEX_SHADECOLOR_DEFAULT = "lightgray"
+
+
+###############################################################################
+# AST helpers
+###############################################################################
+
+
+def Str(text: str) -> Dict:
+    return {"t": "Str", "c": text}
+
+
+def Space() -> Dict:
+    return {"t": "Space"}
+
+
+def Header(level: int, attr: List, inlines: List[Dict]) -> Dict:
+    return {"t": "Header", "c": [level, attr, inlines]}
+
+
+def _gfm_prefix_inlines(inlines: List[Dict], diff_class: str) -> List[Dict]:
+    """Prepend a colored emoji marker and a space to a list of inline elements."""
+    return [Str(_GFM_EMOJI[diff_class]), Space()] + inlines
+
+
+def _gfm_prefix_blocks(block: Dict, diff_class: str) -> List[Dict]:
+    """Add a GFM emoji prefix to a block element, returning a list of blocks.
+
+    For Para/Plain/Header, the emoji is prepended inline to the block's inline
+    list and a single-item list is returned.  For other block types (CodeBlock,
+    etc.) that cannot carry an inline prefix, a separate Para containing only
+    the emoji is prepended, returning a two-item list.
+    """
+    t = block["t"]
+    c = block["c"]
+    if t in ("Para", "Plain"):
+        return [{"t": t, "c": _gfm_prefix_inlines(c, diff_class)}]
+    if t == "Header":
+        level, attr, inlines = c
+        return [Header(level, attr, _gfm_prefix_inlines(inlines, diff_class))]
+    # Non-inline block: emit a standalone emoji Para, then the block itself.
+    emoji_para = {"t": "Para", "c": [Str(_GFM_EMOJI[diff_class])]}
+    return [emoji_para, block]
+
+
+def make_diff_span(diff_class: str, inlines: List[Dict]) -> Dict:
+    """Wrap inlines in a Span tagged with the given diff class."""
+    return {"t": "Span", "c": [["", [diff_class], []], inlines]}
+
+
+def _make_styled_div(bg_color: str, blocks: List[Dict]) -> Dict:
+    """Wrap blocks in a Pandoc Div with an inline background-color style."""
+    return {
+        "t": "Div",
+        "c": [["", [], [("style", f"background-color: {bg_color};")]], blocks],
+    }
+
+
+def _has_math(inlines: List[Dict]) -> bool:
+    """Return True if any node in inlines is a Math element (inline or display).
+
+    Used to decide whether to skip ulem text-decoration commands (\\uline,
+    \\sout), which cannot safely wrap any math content.
+    """
+    for node in inlines:
+        if node.get("t") == "Math":
+            return True
+    return False
+
+
+def _has_display_math(inlines: List[Dict]) -> bool:
+    """Return True if any node in inlines is a DisplayMath element.
+
+    Display math (\\[...\\]) cannot be nested inside LaTeX box commands such as
+    \\colorbox or \\parbox.  Use this guard before adding any box wrapper.
+    """
+    for node in inlines:
+        if node.get("t") == "Math":
+            math_type = node["c"][0].get("t")
+            if math_type == "DisplayMath":
+                return True
+    return False
+
+
+###############################################################################
+# style_inlines - recursive wrapper (used for whole-block "other formats")
+###############################################################################
+
+
+def style_inlines(inlines: List[Dict], Wrapper: Type) -> List[Dict]:
+    """Recursively traverse inlines and wrap text content with Wrapper."""
+    new_list = []
+    for inline in inlines:
+        t = inline.get("t")
+        c = inline.get("c")
+        if t in ("Str", "Space", "SoftBreak", "LineBreak"):
+            if t == "Str" and not c:
+                continue
+            new_list.append(Wrapper([inline]))
+        elif t in ("Emph", "Strong"):
+            new_list.append({"t": t, "c": style_inlines(c, Wrapper)})
+        elif t == "Quoted":
+            quote_type, quoted_inlines = c
+            new_list.append(
+                {"t": t, "c": [quote_type, style_inlines(quoted_inlines, Wrapper)]}
+            )
+        elif t == "Link":
+            attr, link_text, target = c
+            new_list.append(
+                {"t": "Link", "c": [attr, style_inlines(link_text, Wrapper), target]}
+            )
+        elif t == "Cite":
+            citations, citation_text = c
+            new_list.append(
+                {"t": "Cite", "c": [citations, style_inlines(citation_text, Wrapper)]}
+            )
+        else:
+            new_list.append(inline)
+    return new_list
+
+
+###############################################################################
+# Format-specific rendering
+###############################################################################
+
+def _raw_inline(fmt: str, text: str) -> Dict:
+    return {"t": "RawInline", "c": [fmt, text]}
+
+
+def _latex_text_cmd_wrap(diff_class: str, content: List[Dict], math: bool = False) -> List[Dict]:
+    """Wrap content with underline or strikethrough.
+
+    When math=False (default): uses \\uline/\\sout from ulem (supports line
+    breaking, but cannot wrap Math nodes).
+    When math=True: uses \\underline/\\textsout (math-safe, defined in
+    latex_diff_preamble.tex, but does not support line breaking).
+    """
+    cmd = _LATEX_MATH_TEXT_CMD[diff_class] if math else _LATEX_TEXT_CMD[diff_class]
+    return (
+        [_raw_inline("latex", f"\\protect{cmd}{{")]
+        + content
+        + [_raw_inline("latex", "}")]
+    )
+
+
+def _latex_span_wrap(diff_class: str, content: List[Dict]) -> List[Dict]:
+    """Wrap word-level span content in a colored box + text decoration.
+
+    Uses \\colorbox{DiffSpanXxx}{\\strut \\uline/\\sout{content}} for text
+    content, and \\colorbox{DiffSpanXxx}{\\strut \\underline/\\textsout{content}}
+    when content contains inline math (ulem cannot wrap math).
+    Display math cannot go inside any box; the block-level tcolorbox background
+    is sufficient, so span-level styling is skipped entirely.
+    """
+    if _has_display_math(content):
+        # Display math cannot be inside \colorbox at all.  Background is
+        # applied at the block level via tcolorbox; no span-level styling.
+        return list(content)
+    bg = _LATEX_WORD_DIFF_BG[diff_class]
+    inner = _latex_text_cmd_wrap(diff_class, content, math=_has_math(content))
+    return (
+        [_raw_inline("latex", f"\\colorbox{{{bg}}}{{\\strut ")]
+        + inner
+        + [_raw_inline("latex", "}")]
+    )
+
+
+def _latex_block_bg_wrap(diff_class: str, content: List[Dict]) -> List[Dict]:
+    """Wrap block inline content in a pale-background \\colorbox/\\parbox.
+
+    Prepends \\noindent\\colorbox{DiffSectionInsPaleGreen}{\\parbox{...}{ and appends }}.
+    The text decoration (\\uline/\\sout) is applied to the content by the
+    caller before passing it here - this function only adds the outer box.
+    """
+    bg = _LATEX_BLOCK_DIFF_BG[diff_class]
+    open_cmd = (
+        f"\\noindent\\colorbox{{{bg}}}"
+        "{\\parbox{\\dimexpr\\linewidth-2\\fboxsep}{"
+    )
+    return (
+        [_raw_inline("latex", open_cmd)]
+        + content
+        + [_raw_inline("latex", "}}")]
+    )
+
+
+def _latex_codeblock_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
+    """Wrap a CodeBlock in shadecolor colorlet commands for LaTeX diff output.
+
+    Returns three blocks: a RawBlock setting shadecolor to the pale diff
+    background, the CodeBlock itself, and a RawBlock resetting shadecolor to
+    pandoc's default (lightgray).  This works because pandoc's Shaded
+    environment uses shadecolor internally; \\colorbox cannot wrap verbatim.
+    """
+    bg = _LATEX_BLOCK_DIFF_BG[diff_class]
+    set_cmd = f"\\colorlet{{shadecolor}}{{{bg}}}"
+    reset_cmd = f"\\colorlet{{shadecolor}}{{{_LATEX_SHADECOLOR_DEFAULT}}}"
+    return [
+        {"t": "RawBlock", "c": ["latex", set_cmd]},
+        block,
+        {"t": "RawBlock", "c": ["latex", reset_cmd]},
+    ]
+
+
+def _latex_tcolorbox_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
+    """Wrap a block in a tcolorbox environment for LaTeX diff output.
+
+    Returns three blocks: a RawBlock opening the tcolorbox, the block itself,
+    and a RawBlock closing it.  This is used for Para/Plain blocks that contain
+    display math (\\[...\\]), which cannot be nested inside \\colorbox/\\parbox.
+    tcolorbox supports display math content without restriction.
+    """
+    bg = _LATEX_BLOCK_DIFF_BG[diff_class]
+    open_cmd = (
+        f"\\begin{{tcolorbox}}[colback={bg},colframe={bg},"
+        "boxrule=0pt,boxsep=0pt,left=2pt,right=2pt,top=1pt,bottom=1pt,"
+        "enhanced,breakable]"
+    )
+    return [
+        {"t": "RawBlock", "c": ["latex", open_cmd]},
+        block,
+        {"t": "RawBlock", "c": ["latex", "\\end{tcolorbox}"]},
+    ]
+
+
+def _latex_apply_block_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
+    """Apply a pale-background wrapper to a block for LaTeX diff output.
+
+    Routes to the appropriate mechanism based on block type:
+    - CodeBlock: shadecolor colorlet commands (\\colorbox cannot wrap verbatim)
+    - Para/Plain with display math: tcolorbox environment (\\colorbox/\\parbox
+      cannot contain display math)
+    - Para/Plain otherwise: inline \\colorbox/\\parbox wrapping
+    - Header: tcolorbox environment (\\colorbox/\\parbox cause layout issues in headings)
+    - Other block types: returned unchanged, as a single-item list
+    """
+    t = block.get("t")
+    if t == "CodeBlock":
+        return _latex_codeblock_bg_blocks(block, diff_class)
+    if t in ("Para", "Plain"):
+        inlines = block["c"]
+        if _has_display_math(inlines):
+            return _latex_tcolorbox_bg_blocks(block, diff_class)
+        return [{"t": t, "c": _latex_block_bg_wrap(diff_class, inlines)}]
+    if t == "Header":
+        return _latex_tcolorbox_bg_blocks(block, diff_class)
+    return [block]
+
+
+def render_span_inlines(inlines: List[Dict], format: str) -> List[Dict]:
+    """Convert Span(["insertion"/"deletion"], [...]) elements to format-specific markup.
+
+    Non-Span elements pass through unchanged.
+    """
+    result = []
+    for node in inlines:
+        if node.get("t") != "Span":
+            result.append(node)
+            continue
+        span_attrs, span_content = node["c"]
+        span_classes = span_attrs[1]
+        if "insertion" in span_classes:
+            diff_class = "insertion"
+        elif "deletion" in span_classes:
+            diff_class = "deletion"
+        else:
+            result.append(node)
+            continue
+
+        result.extend(_render_span(span_content, format, diff_class))
+
+    return result
+
+
+def _render_span(content: List[Dict], format: str, diff_class: str) -> List[Dict]:
+    """Emit format-specific inline markup wrapping content for one diff class.
+
+    For HTML, word-level spans (inside substitutions) get the stronger shade
+    background plus underline/strikethrough.
+    For GFM markdown, <u>...</u> marks insertions and ~~...~~ marks deletions.
+    For LaTeX, word-level spans get a colored box plus ulem text decoration
+    (or textcolor-only fallback when content contains math).
+    """
+    if format == "latex":
+        return _latex_span_wrap(diff_class, content)
+    elif format == "html":
+        bg = _HTML_WORD_DIFF_BG[diff_class]
+        decoration = _HTML_TEXT_DECORATION[diff_class]
+        open_tag = (
+            f'<span style="background-color: {bg}; text-decoration: {decoration};">'
+        )
+        return (
+            [_raw_inline("html", open_tag)]
+            + content
+            + [_raw_inline("html", "</span>")]
+        )
+    elif format in _GFM_FORMATS:
+        if _has_math(content):
+            # Math nodes expand to multi-line code fences in GFM output, which
+            # breaks inline markup.  Skip word-level markup; the block-level emoji
+            # prefix is sufficient to indicate the diff.
+            return list(content)
+        if diff_class == "insertion":
+            return (
+                [_raw_inline("html", "<u>")]
+                + content
+                + [_raw_inline("html", "</u>")]
+            )
+        else:
+            return (
+                [_raw_inline("markdown", "~~")]
+                + content
+                + [_raw_inline("markdown", "~~")]
+            )
+    else:
+        Wrapper = Underline if diff_class == "insertion" else Strikeout
+        return [Wrapper(content)]
+
+
+def render_inlines_raw(inlines: List[Dict], format: str, diff_class: str) -> List[Dict]:
+    """Wrap an entire inline list in diff markup (for whole-block changes).
+
+    For HTML, whole-block changes get text decoration only (the pale block
+    background is applied at the Div level by handle_whole_block).
+    For GFM markdown, the block-level emoji prefix (added by handle_whole_block)
+    is sufficient; no additional inline markup is needed on the content.
+    For LaTeX, applies ulem text decoration, or \\underline/\\textsout for
+    content containing inline math (ulem cannot wrap math).
+    The pale block background is added at the block level by render_whole_block.
+    """
+    if format == "latex":
+        if _has_display_math(inlines):
+            # Background applied at block level via tcolorbox; no text styling.
+            return list(inlines)
+        return _latex_text_cmd_wrap(diff_class, inlines, math=_has_math(inlines))
+    elif format == "html":
+        decoration = _HTML_TEXT_DECORATION[diff_class]
+        open_tag = f'<span style="text-decoration: {decoration};">'
+        return (
+            [_raw_inline("html", open_tag)]
+            + inlines
+            + [_raw_inline("html", "</span>")]
+        )
+    elif format in _GFM_FORMATS:
+        # Emoji prefix is added at block level; content passes through unchanged.
+        return list(inlines)
+    else:
+        Wrapper = Underline if diff_class == "insertion" else Strikeout
+        return style_inlines(inlines, Wrapper)
+
+
+###############################################################################
+# Inline diff (element-granularity)
+###############################################################################
+
+
+def inline_diff(
+    old_inlines: List[Dict], new_inlines: List[Dict]
+) -> List[tuple[int, List[Dict]]]:
+    """Diff two lists of pandoc inline elements at element granularity.
+
+    Returns a list of (op, [node, ...]) pairs where op is DIFF_DELETE,
+    DIFF_INSERT, or DIFF_EQUAL.
+    """
+    node_to_char: Dict[str, str] = {}
+    char_to_node: Dict[str, Dict] = {}
+
+    def encode(inlines: List[Dict]) -> str:
+        chars = []
+        for node in inlines:
+            # Normalize SoftBreak to Space: both render as whitespace, so treating
+            # them as identical avoids false positives when pandoc line-wraps a
+            # paragraph differently across versions (e.g. because the math changed
+            # length and the wrap point shifted).
+            normalized = {"t": "Space"} if node.get("t") == "SoftBreak" else node
+            key = json.dumps(normalized, sort_keys=True)
+            if key not in node_to_char:
+                # U+F0000 is the start of Supplementary Private Use Area-A,
+                # which provides 65,534 private-use code points - far more
+                # than any realistic paragraph needs.
+                c = chr(0xF0000 + len(node_to_char))
+                node_to_char[key] = c
+                char_to_node[c] = normalized
+            chars.append(node_to_char[key])
+        return "".join(chars)
+
+    enc_old = encode(old_inlines)
+    enc_new = encode(new_inlines)
+    dmp = diff_match_patch()
+    diffs = dmp.diff_main(enc_old, enc_new)
+    dmp.diff_cleanupSemantic(diffs)
+    return [(op, [char_to_node[c] for c in chars]) for op, chars in diffs]
+
+
+###############################################################################
+# Block rendering helpers
+###############################################################################
+
+# Block types that carry inline content
+_INLINE_BLOCK_TYPES = ("Para", "Plain", "Header")
+
+
+def _is_inline_block(block: Dict) -> bool:
+    return block.get("t") in _INLINE_BLOCK_TYPES
+
+
+def _get_block_inlines(block: Dict) -> List[Dict]:
+    """Return the inline list from a Para, Plain, or Header block."""
+    t = block.get("t")
+    c = block.get("c")
+    if t in ("Para", "Plain"):
+        return c
+    else:  # Header
+        _level, _attr, inlines = c
+        return inlines
+
+
+def _build_inline_block(block: Dict, inlines: List[Dict]) -> Dict:
+    """Reconstruct a Para/Plain/Header with new inlines."""
+    t = block.get("t")
+    c = block.get("c")
+    if t in ("Para", "Plain"):
+        return {"t": t, "c": inlines}
+    else:  # Header
+        level, attr, _old_inlines = c
+        return Header(level, attr, inlines)
+
+
+def render_whole_block(block: Dict, format: str, diff_class: str) -> Dict:
+    """Apply whole-block diff markup to all inlines in a block.
+
+    For LaTeX, Para and Plain blocks receive a pale-background colorbox wrapper.
+    Header blocks receive text decoration only; the caller is responsible for
+    adding a tcolorbox background wrapper at the block level.
+    """
+    t = block.get("t")
+    c = block.get("c")
+    if t in ("Para", "Plain"):
+        styled = render_inlines_raw(c, format, diff_class)
+        if format == "latex" and not _has_display_math(c):
+            styled = _latex_block_bg_wrap(diff_class, styled)
+        return {"t": t, "c": styled}
+    elif t == "Header":
+        level, attr, inlines = c
+        styled = render_inlines_raw(inlines, format, diff_class)
+        return Header(level, attr, styled)
+    else:
+        return block
+
+
+###############################################################################
+# handle_whole_block and handle_substitution
+###############################################################################
+
+
+def handle_whole_block(
+    content: List[Dict], format: str, diff_class: str
+) -> List[Dict]:
+    """Handle a pure insertion or deletion Div.
+
+    For HTML, each block is wrapped in a pale-background styled Div.
+    For GFM markdown, each block is prefixed with a colored emoji square
+    (green for insertion, red for deletion); no background Div is emitted
+    because GFM does not render pandoc-style Div syntax.
+    For LaTeX, CodeBlock elements are wrapped with shadecolor colorlet commands
+    to give them a pale diff background via pandoc's Shaded environment.
+    Para/Plain blocks containing display math are wrapped with a tcolorbox
+    environment, which (unlike \\colorbox/\\parbox) supports display math.
+    """
+    if format == "html":
+        rendered = [render_whole_block(block, format, diff_class) for block in content]
+        bg = _HTML_BLOCK_DIFF_BG[diff_class]
+        return [_make_styled_div(bg, rendered)]
+    if format in _GFM_FORMATS:
+        result = []
+        for block in content:
+            result.extend(_gfm_prefix_blocks(block, diff_class))
+        return result
+    result = []
+    for block in content:
+        if format == "latex" and block.get("t") == "CodeBlock":
+            result.extend(_latex_codeblock_bg_blocks(block, diff_class))
+        elif (
+            format == "latex"
+            and block.get("t") in ("Para", "Plain")
+            and _has_display_math(block["c"])
+        ):
+            rendered = render_whole_block(block, format, diff_class)
+            result.extend(_latex_tcolorbox_bg_blocks(rendered, diff_class))
+        elif format == "latex" and block.get("t") == "Header":
+            rendered = render_whole_block(block, format, diff_class)
+            result.extend(_latex_tcolorbox_bg_blocks(rendered, diff_class))
+        else:
+            result.append(render_whole_block(block, format, diff_class))
+    return result
+
+
+def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
+    """Handle a substitution Div containing [deletion_div, insertion_div]."""
+
+    deletion_div, insertion_div = content
+    old_block = deletion_div["c"][1][0]
+    new_block = insertion_div["c"][1][0]
+
+    if (
+        _is_inline_block(old_block)
+        and _is_inline_block(new_block)
+        and old_block.get("t") == new_block.get("t")
+    ):
+        old_inlines = _get_block_inlines(old_block)
+        new_inlines = _get_block_inlines(new_block)
+        diffs = inline_diff(old_inlines, new_inlines)
+
+        # Build old (deletion) output block: EQUAL as-is, DELETE wrapped, INSERT omitted
+        old_out: List[Dict] = []
+        for op, nodes in diffs:
+            if op == DIFF_EQUAL:
+                old_out.extend(nodes)
+            elif op == DIFF_DELETE:
+                old_out.append(make_diff_span("deletion", nodes))
+            # INSERT: omit from old block
+
+        # Build new (insertion) output block: EQUAL as-is, INSERT wrapped, DELETE omitted
+        new_out: List[Dict] = []
+        for op, nodes in diffs:
+            if op == DIFF_EQUAL:
+                new_out.extend(nodes)
+            elif op == DIFF_INSERT:
+                new_out.append(make_diff_span("insertion", nodes))
+            # DELETE: omit from new block
+
+        old_out = render_span_inlines(old_out, format)
+        new_out = render_span_inlines(new_out, format)
+
+        old_result = _build_inline_block(old_block, old_out)
+        new_result = _build_inline_block(new_block, new_out)
+    else:
+        # Non-inline blocks: fall back to whole-block styling
+        old_result = render_whole_block(old_block, format, "deletion")
+        new_result = render_whole_block(new_block, format, "insertion")
+
+    if format == "html":
+        return [
+            _make_styled_div(_HTML_BLOCK_DIFF_BG["deletion"], [old_result]),
+            _make_styled_div(_HTML_BLOCK_DIFF_BG["insertion"], [new_result]),
+        ]
+    if format in _GFM_FORMATS:
+        return (
+            _gfm_prefix_blocks(old_result, "deletion")
+            + _gfm_prefix_blocks(new_result, "insertion")
+        )
+    if format == "latex":
+        return _latex_apply_block_bg_blocks(
+            old_result, "deletion"
+        ) + _latex_apply_block_bg_blocks(new_result, "insertion")
+    return [old_result, new_result]
+
+
+###############################################################################
+# Top-level filter function
+###############################################################################
+
+
+def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List[Dict]]:
+    if key != "Div":
+        return None
+    attrs, content = value
+    classes = attrs[1]
+    if "substitution" in classes:
+        return handle_substitution(content, format)
+    elif "insertion" in classes:
+        return handle_whole_block(content, format, "insertion")
+    elif "deletion" in classes:
+        return handle_whole_block(content, format, "deletion")
+    return None
+
+
+if __name__ == "__main__":
+    toJSONFilter(render_diffs)

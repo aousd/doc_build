@@ -13,6 +13,12 @@ from datetime import datetime
 from typing import Dict, Optional, Union
 
 from doc_build.ast_diff import diff_ast_files
+from doc_build.diff_colors import (
+    DIFF_SECTION_DEL_PALE_RED,
+    DIFF_SECTION_INS_PALE_GREEN,
+    DIFF_WORD_DEL_RED,
+    DIFF_WORD_INS_GREEN,
+)
 
 try:
     import yaml
@@ -73,8 +79,7 @@ class ExecCommand:
         if stderr_processor:
 
             process = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                *args, **kwargs
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, *args, **kwargs
             )
             std_out, std_err = process.communicate()
 
@@ -127,7 +132,9 @@ class DocBuilder:
             if len(args.diff) == 1:
                 args.diff.append("HEAD")
             elif len(args.diff) > 2:
-                raise ValueError(f"At most 2 arguments for --diff - got {len(args.diff)}")
+                raise ValueError(
+                    f"At most 2 arguments for --diff - got {len(args.diff)}"
+                )
         args.output.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
@@ -158,6 +165,7 @@ class DocBuilder:
                 combined=diff_md,
                 filename=DIFF_DIFF_FILENAME_TEMPLATE.format(base=base, from_short=from_short, to_short=to_short),
                 skip_docx=True,
+                is_diff=True,
                 output_dir=args.output / "diff",
             )
             # If everything succeeds, we should have an output tree like this
@@ -192,6 +200,7 @@ class DocBuilder:
         filename,
         *,
         skip_docx=False,
+        is_diff=False,
         output_dir: Path | None = None,
     ):
         """Render HTML, PDF, Markdown, and optionally DOCX from a combined markdown file."""
@@ -242,17 +251,27 @@ class DocBuilder:
             # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
             "-V",
             f"AOUSD_ARTIFACTS_ROOT={artifacts_dir}",
-            "-V", "colorlinks=true",
-            "-V", "linkcolor=OliveGreen",
-            "-V", "toccolor=OliveGreen",
-            "-V", "citecolor=OliveGreen",
-            "-V", "urlcolor=blue",
+            "-V", f"diff-section-ins-pale-green={DIFF_SECTION_INS_PALE_GREEN}",
+            "-V", f"diff-section-del-pale-red={DIFF_SECTION_DEL_PALE_RED}",
+            "-V", f"diff-word-ins-green={DIFF_WORD_INS_GREEN}",
+            "-V", f"diff-word-del-red={DIFF_WORD_DEL_RED}",
+            "-V",
+            "colorlinks=true",
+            "-V",
+            "linkcolor=OliveGreen",
+            "-V",
+            "toccolor=OliveGreen",
+            "-V",
+            "citecolor=OliveGreen",
+            "-V",
+            "urlcolor=blue",
             "--toc=true",
             "--toc-depth",
             "2",
             "--standalone",
             "--number-sections=true",
-            "--from", MARKDOWN_FORMAT,
+            "--from",
+            MARKDOWN_FORMAT,
             "--pdf-engine=tectonic",
         ]
 
@@ -296,7 +315,9 @@ class DocBuilder:
 
         if not args.no_pdf:
             pdf = output_dir / f"{filename}.pdf"
-            latex_template = self.get_scripts_root() / "template" / "default.latex"
+            template_dir = self.get_scripts_root() / "template"
+            latex_template = template_dir / "default.latex"
+            latex_diff_preamble = template_dir / "latex_diff_preamble.tex"
             log(f"\tBuilding PDF to {pdf}...")
 
             def stderr_processor(std_err):
@@ -323,8 +344,12 @@ class DocBuilder:
 
                     log(line, file=sys.stderr)
 
+            pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
             pandoc(
-                shared_command + ["-o", pdf, f"--template={latex_template}"],
+                shared_command + [
+                    "-o", pdf,
+                    f"--template={latex_template}",
+                ] + pdf_extra,
                 stderr_processor=stderr_processor,
             )
 
@@ -338,7 +363,7 @@ class DocBuilder:
     def get_doc_build_filters(self):
         """Return a list of paths to the filters the build_doc method runs in the order they must run"""
         return [
-            self.get_filter("decorate_diff"),
+            self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
             self.get_filter("resolve_sections"),
@@ -467,9 +492,7 @@ class DocBuilder:
         combined_from = self._build_combined_for_ref(
             args, from_ref, worktree_from, "diff_from"
         )
-        combined_to = self._build_combined_for_ref(
-            args, to_ref, worktree_to, "diff_to"
-        )
+        combined_to = self._build_combined_for_ref(args, to_ref, worktree_to, "diff_to")
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
 
@@ -491,9 +514,7 @@ class DocBuilder:
             )
 
         diff_ast_path = diff_dir / f"{diff_basename}.json"
-        diff_ast_files(
-            str(ast_from), str(ast_to), str(diff_ast_path)
-        )
+        diff_ast_files(str(ast_from), str(ast_to), str(diff_ast_path))
         # Not strictly necessary (Pandoc can take JSON as input), but converting
         # to markdown unifies the pipeline with the non-diff path and eases debugging.
         combined_diff_md = diff_dir / f"{diff_basename}.md"
@@ -806,9 +827,9 @@ class DocBuilder:
             metavar=("from_commit", "to_commit"),
             action=_OneOrTwoArgsAction,
             help="Generate a document showing a diff between the given commits; "
-                "if `to_commit` is not given, it defaults to HEAD. Commits may "
-                "be git hashes, branch names, tags, or any other valid git "
-                "reference understood by `git rev-parse`",
+            "if `to_commit` is not given, it defaults to HEAD. Commits may "
+            "be git hashes, branch names, tags, or any other valid git "
+            "reference understood by `git rev-parse`",
         )
 
         return build_parser

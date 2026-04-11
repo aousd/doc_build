@@ -1,0 +1,34 @@
+% LaTeX preamble for diff styling (included via --include-in-header).
+
+% Relies on xcolor for \colorbox, \colorlet, and \definecolor.
+% However, it is provided by pandoc's default template, so no
+% need for \usepackage{xcolor} here.  Diff colors (DiffSectionInsPaleGreen, etc.)
+% are defined in default.latex via \definecolor using pandoc template
+% variables passed from doc_builder.py.
+
+% \uline (underline) and \sout (strikethrough) for word-level diff spans.
+\usepackage[normalem]{ulem}
+
+% tcolorbox with [most] (a superset of [skins,breakable]) for blocks containing
+% display math, where \colorbox/\parbox cannot be used.  Using [most] here matches
+% after-header-includes.latex so that if tcolorbox is loaded by either, the other's
+% \usepackage call is silently ignored (identical options = no-op in LaTeX).
+\usepackage[most]{tcolorbox}
+
+% snugshade environment for Shaded (pandoc code blocks) background color.
+% Pandoc defines Shaded as empty in newer versions, so we redefine it here
+% to use snugshade, which reads \colorbox{shadecolor} internally.
+\usepackage{framed}
+\renewenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+
+% Strikethrough for spans containing inline math (\sout from ulem cannot wrap math).
+% Uses a dedicated savebox to avoid conflict with \@tempboxa used by \colorbox.
+\newsavebox{\textsoutbox}
+\newcommand{\textsout}[1]{%
+  \sbox{\textsoutbox}{#1}%
+  \rlap{\rule[0.5ex]{\wd\textsoutbox}{0.4pt}}%
+  \usebox{\textsoutbox}%
+}
+
+% Default shadecolor for code blocks outside diff context (snugshade reads it).
+\colorlet{shadecolor}{lightgray!40}

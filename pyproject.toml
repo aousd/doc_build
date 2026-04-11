@@ -7,7 +7,7 @@ name = "doc_build"
 version = "0.1.0"
 description = "Build scripts for AOUSD spec"
 requires-python = ">=3.10"
-dependencies = [  ]
+dependencies = [ "diff-match-patch" ]
 
 [tool.pixi.dependencies]
 pandoc = "*"
@@ -36,9 +36,10 @@ flit-core = ">=3.4"
 tectonic = ">=0.15.0"
 
 [tool.pixi.package.run-dependencies]
+diff-match-patch = "*"
+librsvg = "*"
 pandoc = "*"
 pyyaml = "*"
-librsvg = "*"
 tectonic = "*"
 
 [tool.pixi.package.build]
