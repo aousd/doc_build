@@ -135,21 +135,22 @@ def build_diff(build_html: bool, build_pdf: bool) -> None:
         builder.build_docs(args)
 
         # Copy outputs to tests/build/ with diff_test-* naming
-        for pattern, dst_stem, num_expected in [
-            ("diff_from/artifacts/combined_spec.md", "diff_test-1-before", 1),
-            ("diff_to/artifacts/combined_spec.md",  "diff_test-2-after", 1),
-            ("*diff_*_*", "diff_test-3-diff", 3),
-        ]:
-            files = sorted(diff_output.glob(pattern))
-            if len(files) != num_expected:
-                raise RuntimeError(f"Expected {num_expected} files for {pattern}, got {len(files)}")
-            for src in files:
-                dst = BUILD_DIR / f"{dst_stem}{src.suffix}"
-                shutil.copy(src, dst)
-                print(f"  Written: {dst}")
-            images_src_dir = diff_output / "images"
+        for subdir_name in ("diff_from", "diff_to", "diff"):
+            source_subdir = diff_output / subdir_name
+            dest_subdir = BUILD_DIR / subdir_name
+            dest_subdir.mkdir(parents=True, exist_ok=True)
+            files = sorted(source_subdir.glob("aousd_doc_build.*"))
+
+            # we expect an output html, md, and pdf for each diff
+            if len(files) != 3:
+                raise RuntimeError(f"Expected {num_expected} files for {pattern}, got {len(files)}: {files}")
+            for source in files:
+                destination = dest_subdir / source.name
+                shutil.copy(source, destination)
+                print(f"  Written: {destination}")
+            images_src_dir = source_subdir / "images"
             if images_src_dir.is_dir():
-                images_dst_dir = BUILD_DIR / "images"
+                images_dst_dir = dest_subdir / "images"
                 print(f"  Copying images from {images_src_dir} to {images_dst_dir}")
                 shutil.copytree(images_src_dir, images_dst_dir, dirs_exist_ok=True)
 
