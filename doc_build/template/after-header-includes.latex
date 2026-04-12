@@ -92,6 +92,11 @@ $endif$
 % Fix the potential TOC issue
 \makeatletter
 \newcommand{\l@subsubparagraph}{\@dottedtocline{6}{7em}{4em}}
+% hyperref uses \toclevel@<cmd> to determine PDF bookmark depth.
+% \titleclass does not set this, so without it bookmarks default to level 0
+% (top-level), causing H6 to appear as a root item and nesting all following
+% headings under it in the PDF viewer's outline pane.
+\def\toclevel@subsubparagraph{6}
 \makeatother
 
 \setcounter{secnumdepth}{6}
