@@ -147,6 +147,11 @@ def build_diff(build_html: bool, build_pdf: bool) -> None:
                 dst = BUILD_DIR / f"{dst_stem}{src.suffix}"
                 shutil.copy(src, dst)
                 print(f"  Written: {dst}")
+            images_src_dir = diff_output / "images"
+            if images_src_dir.is_dir():
+                images_dst_dir = BUILD_DIR / "images"
+                print(f"  Copying images from {images_src_dir} to {images_dst_dir}")
+                shutil.copytree(images_src_dir, images_dst_dir, dirs_exist_ok=True)
 
 
 ###############################################################################

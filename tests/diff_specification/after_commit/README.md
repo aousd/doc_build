@@ -58,3 +58,13 @@ This paragraph will remain.
 This is a brand new paragraph inserted into the document.
 
 This paragraph will also remain at the end.
+
+## Images
+
+An SVG image that does not change:
+
+![Blue circle](images/unchanged.svg)
+
+A PNG image that does not change:
+
+![Blue box](images/unchanged.png)
