@@ -6,7 +6,7 @@ from pandocfilters import toJSONFilter, RawBlock, stringify
 def header_to_subsubparagraph(key, value, format, meta):
     if key == 'Header':
         level, attr, contents = value
-        if level == 6:
+        if level == 6 and format == 'latex':
             text = stringify(contents)
             return RawBlock('latex', f'\\subsubparagraph{{{text}}}')
 

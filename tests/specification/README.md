@@ -9,6 +9,7 @@ and to ensure we reduce the risk of regressions.
 It is also a quick testbed for functionality.
 
 1. [Inlined](Inlined.md)
+2. [Header Levels](headers_levels.md)
 
 # Math Tests
 
