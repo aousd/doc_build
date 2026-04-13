@@ -19,7 +19,9 @@ tectonic = "*"
 doc_build = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-test = "python tests/build_scripts/build_docs.py"
+build = "python tests/build_scripts/build_docs.py build"
+build-diff = "python tests/build_scripts/build_diff.py"
+test = { depends-on = ["build", "build-diff"] }
 
 [tool.pixi.workspace]
 channels = [

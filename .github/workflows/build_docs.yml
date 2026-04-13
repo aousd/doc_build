@@ -22,7 +22,7 @@ jobs:
           sudo apt-get install -y fonts-dejavu
           fc-cache -fv
       - name: Build PDF
-        run: pixi run test build
+        run: pixi run test
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
@@ -38,3 +38,8 @@ jobs:
         with:
           name: aousd_doc_build-html
           path: tests/build/aousd_doc_build.html
+      - name: Upload diff artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aousd_doc_build-diff
+          path: tests/build/diff_test-*
