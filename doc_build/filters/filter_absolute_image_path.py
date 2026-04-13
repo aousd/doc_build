@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import os
-from pandocfilters import toJSONFilter, Image
 from pathlib import Path
 
+from pandocfilters import toJSONFilter, Image
+from shared_filter_utils import get_metadata_str
 
 def convert_image_paths(key, value, format, metadata):
     if key == "Image":
@@ -10,7 +11,7 @@ def convert_image_paths(key, value, format, metadata):
 
         # If the image path is relative, make it absolute
         if not os.path.isabs(image_path):
-            build_directory = metadata["PATH"]["c"][0]["c"]
+            build_directory = get_metadata_str(metadata, "PATH")
             absolute_path = (Path(build_directory) / image_path).resolve().as_posix()  # otherwise Pandoc would fail
             value[2][0] = absolute_path
 
