@@ -150,6 +150,17 @@ This section exists in both versions but the list has several types of changes.
 - This item is unchanged; it separates the deletion above from the replacements below
 - This item replaces the old third entry with completely new text
 - This item will have just one word modified
+
+- This item contains a blockquote that will be modified:
+
+    > This blockquote content comes from the after version.
+
+- This item contains a code block that will be modified:
+
+    ```python
+    result = new_function()
+    ```
+
 - This item will also be kept in the list without any changes
 - This brand new item was added to the end of the list
 
