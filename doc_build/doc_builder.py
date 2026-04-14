@@ -112,6 +112,106 @@ tectonic = ExecCommand("tectonic")
 git = ExecCommand("git")
 
 
+def _ensure_windows_wrapper_exe(capture_wrapper: Path, wrapper_exe: Path) -> None:
+    """Build the tectonic.exe wrapper via PyInstaller if it does not exist or is stale.
+
+    Rebuilds if wrapper_exe is older than capture_wrapper (the Python source).
+    Uses `pixi exec pyinstaller` so PyInstaller need not be a permanent dependency.
+    """
+    if wrapper_exe.exists() and wrapper_exe.stat().st_mtime >= capture_wrapper.stat().st_mtime:
+        return
+
+    import tempfile
+
+    log("Building tectonic.exe wrapper via PyInstaller (one-time setup)...")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            [
+                "pixi",
+                "exec",
+                "pyinstaller",
+                "--onefile",
+                "--name",
+                "tectonic",
+                "--distpath",
+                str(wrapper_exe.parent),
+                "--workpath",
+                tmp,
+                "--specpath",
+                tmp,
+                "--noconfirm",
+                str(capture_wrapper),
+            ],
+            check=True,
+        )
+
+
+def _call_wrapped_tectonic(
+    pandoc_cmd: list,
+    capture_wrapper: Path,
+    real_tectonic: str,
+    base_env: dict,
+    stderr_processor,
+    tex_file: Path,
+    media_dir: Path,
+) -> None:
+    """Run pandoc with the tectonic capture wrapper active.
+
+    Constructs the capture environment (TEX_CAPTURE_PATH, TEX_MEDIA_DIR,
+    REAL_TECTONIC_PATH) and invokes pandoc.
+
+    On Unix, injects the wrapper directory at the front of PATH so pandoc finds
+    our shebang wrapper before the real tectonic.
+
+    On Windows, pandoc ignores PATH and uses the tectonic that ships in the
+    same pixi environment directory.  The real tectonic.exe must be inside the
+    pixi project (i.e. pixi-managed); we temporarily rename it and drop the
+    pre-built wrapper exe in its place, restoring everything via try/finally.
+    Raises RuntimeError if the real tectonic is outside the pixi project.
+    """
+    capture_env = {
+        **base_env,
+        "TEX_CAPTURE_PATH": str(tex_file),
+        "TEX_MEDIA_DIR": str(media_dir),
+    }
+
+    if sys.platform != "win32":
+        run_env = {
+            **capture_env,
+            "REAL_TECTONIC_PATH": real_tectonic,
+            "PATH": f"{capture_wrapper.parent}{os.pathsep}{capture_env.get('PATH', '')}",
+        }
+        pandoc(pandoc_cmd, stderr_processor=stderr_processor, env=run_env)
+        return
+
+    # Windows: pandoc finds tectonic via its own install directory, not PATH.
+    # Resolve both paths before comparing to normalize mixed slashes and case.
+    # capture_wrapper is <scripts_root>/tools/tectonic; project root is two levels up.
+    pixi_project_root = capture_wrapper.parent.parent.parent.resolve()
+    real_path = Path(real_tectonic).resolve()
+    try:
+        real_path.relative_to(pixi_project_root)
+    except ValueError:
+        raise RuntimeError(
+            f"tectonic binary is outside the pixi project:\n"
+            f"  tectonic: {real_path}\n"
+            f"  project:  {pixi_project_root}\n"
+            "Cannot safely intercept it on Windows."
+        )
+
+    wrapper_exe = capture_wrapper.parent / "tectonic.exe"
+    _ensure_windows_wrapper_exe(capture_wrapper, wrapper_exe)
+    renamed = real_path.with_name("tectonic.original.exe")
+    real_path.rename(renamed)
+    try:
+        shutil.copy2(wrapper_exe, real_path)
+        run_env = {**capture_env, "REAL_TECTONIC_PATH": str(renamed)}
+        pandoc(pandoc_cmd, stderr_processor=stderr_processor, env=run_env)
+    finally:
+        real_path.unlink(missing_ok=True)
+        renamed.rename(real_path)
+
+
 class DocBuilder:
     def __init__(self, *, repo_root: Optional[Union[Path, str]] = None):
         super().__init__()
@@ -382,7 +482,7 @@ class DocBuilder:
                     )
                 else:
                     tex_file = output_dir / f"{filename}.tex"
-                    recreate_script = output_dir / "recreate_pdf.sh"
+                    recreate_script = output_dir / "recreate_pdf.py"
 
                     # A capture wrapper named "tectonic" intercepts the LaTeX pandoc
                     # pipes to tectonic, saves it to disk, then forwards to the real
@@ -391,38 +491,41 @@ class DocBuilder:
                     # not a full path).  The wrapper is found first because its parent
                     # dir is prepended to PATH.
                     capture_wrapper = self.get_scripts_root() / "tools" / "tectonic"
-                    # Ensure executable bit is set (can be lost when installed from git)
-                    _mode = capture_wrapper.stat().st_mode
-                    if not (_mode & stat.S_IXUSR):
-                        capture_wrapper.chmod(_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    # Ensure executable bit is set (can be lost when installed from git).
+                    if sys.platform != "win32":
+                        _mode = capture_wrapper.stat().st_mode
+                        if not (_mode & stat.S_IXUSR):
+                            capture_wrapper.chmod(_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-                    capture_env = build_env.copy()
-                    capture_env["REAL_TECTONIC_PATH"] = tectonic.binary
-                    capture_env["TEX_CAPTURE_PATH"] = str(tex_file)
-                    capture_env["TEX_MEDIA_DIR"] = str(output_dir / "images")
-                    capture_env["PATH"] = f"{capture_wrapper.parent}:{capture_env.get('PATH', '')}"
+                    # casting to os-native path ensures consistent slashes - was getting paths like:
+                    #    C:\\doc_build\\.pixi\\envs\\default\\Library/bin\\tectonic.EXE
+                    tectonic_path = str(Path(tectonic.binary))
 
                     log(f"\tBuilding PDF to {pdf}...")
-                    pandoc(
+                    _call_wrapped_tectonic(
                         latex_cmd_base + ["--pdf-engine=tectonic", "-o", pdf],
-                        stderr_processor=stderr_processor,
-                        env=capture_env,
+                        capture_wrapper,
+                        tectonic_path,
+                        build_env,
+                        stderr_processor,
+                        tex_file=tex_file,
+                        media_dir=output_dir / "images",
                     )
 
+                    recreate_template = self.get_scripts_root() / "tools" / "recreate_pdf.py.template"
                     recreate_script.write_text(
-                        f"#!/bin/sh\n"
-                        f"set -e\n"
-                        "\n"
-                        f"SOURCE_DATE_EPOCH={source_date_epoch}\n"
-                        f"export SOURCE_DATE_EPOCH\n"
-                        f'SCRIPT_DIR=$(dirname "$0")\n'
-                        f'cd "${{SCRIPT_DIR}}"\n'
-                        f'{tectonic.binary} - --outdir . < "{tex_file.name}"\n'
-                        f"mv texput.pdf '{pdf.name}'\n"
+                        recreate_template.read_text(encoding="utf-8").format(
+                            source_date_epoch=source_date_epoch,
+                            tectonic_path=tectonic_path,
+                            tex_file_name=tex_file.name,
+                            pdf_name=pdf.name,
+                        ),
+                        encoding="utf-8",
                     )
-                    recreate_script.chmod(
-                        recreate_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-                    )
+                    if sys.platform != "win32":
+                        recreate_script.chmod(
+                            recreate_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                        )
 
                     log(f"\tCaptured LaTeX: {tex_file}")
                     log(f"\tTo recreate PDF from .tex: {recreate_script}")

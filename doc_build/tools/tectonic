@@ -25,33 +25,58 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+
+def _make_temp_path_re() -> re.Pattern:
+    """Return a regex matching absolute paths under the OS temp directory."""
+    if sys.platform == "win32":
+        # On Windows, pandoc writes temp-dir paths using forward slashes in
+        # .tex files.  Build the pattern from the actual temp directory so it
+        # adapts to custom %TEMP% locations.
+        tmp = Path(tempfile.gettempdir()).as_posix()
+        return re.compile(rf"{re.escape(tmp)}/[^\s{{}}]+\.[A-Za-z]+", re.IGNORECASE)
+    else:
+        return re.compile(r"/tmp/[^\s{}\\]+\.[A-Za-z]+")
+
+
+_TEMP_PATH_RE = _make_temp_path_re()
+
+# Matches pandoc's relative temp media dirs: media-{hex}/<filename>.<ext>
+# These are written relative to the CWD (artifacts_dir) and deleted after pandoc exits.
+_MEDIA_REL_PATH_RE = re.compile(r"media-[0-9a-f]+/[^\s{}]+\.[A-Za-z]+")
 
 
 def stabilize_tex_media(tex_path: Path, media_dir: Path) -> None:
     """Copy pandoc temp-dir media into media_dir and rewrite paths in the .tex.
 
-    Pandoc extracts images to a short-lived temp directory.  The captured
-    .tex references those temp paths.  This function copies each temp file
-    into media_dir and rewrites the .tex in-place so the via-tex tectonic
-    run can find the images after pandoc has exited.
+    Handles two cases:
+    - Absolute paths under the OS temp directory (Unix-style pandoc behaviour).
+    - Relative media-{hex}/ paths written by pandoc relative to its CWD
+      (artifacts_dir), which pandoc deletes after it exits.
+
+    Replacement paths are written relative to Path.cwd() (artifacts_dir when
+    the wrapper runs), which is also the CWD tectonic uses in recreate_pdf.py.
     """
     content = tex_path.read_text(encoding="utf-8")
-
-    # Match any absolute /tmp/... path followed by a file extension.
-    temp_path_re = re.compile(r"/tmp/[^\s{}\\]+\.[A-Za-z]+")
+    cwd = Path.cwd()
 
     replacements = {}
-    for match in temp_path_re.finditer(content):
-        orig = match.group(0)
-        if orig in replacements:
-            continue
-        src = Path(orig)
-        if not src.exists():
-            continue
-        dest = media_dir / src.name
-        shutil.copy2(src, dest)
-        replacements[orig] = os.path.relpath(dest, tex_path.parent)
+    for pattern in (_TEMP_PATH_RE, _MEDIA_REL_PATH_RE):
+        for match in pattern.finditer(content):
+            orig = match.group(0)
+            if orig in replacements:
+                continue
+            src = Path(orig)
+            if not src.is_absolute():
+                src = cwd / src
+            if not src.exists():
+                continue
+            dest = media_dir / src.name
+            shutil.copy2(src, dest)
+            # Use forward slashes: LaTeX requires them even on Windows.
+            replacements[orig] = Path(os.path.relpath(dest, cwd)).as_posix()
 
     if not replacements:
         return

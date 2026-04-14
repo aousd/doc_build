@@ -384,4 +384,7 @@ $RECYCLE.BIN/
 pixi.lock
 /.pixi
 
+# PyInstaller-built wrapper (generated artifact, Windows only)
+doc_build/tools/tectonic.exe
+
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,windows,linux,pycharm,visualstudiocode

@@ -147,8 +147,8 @@ def build_diff(build_html: bool, build_pdf: bool, keep_pdf_latex: bool = False) 
         if keep_pdf_latex:
             # should also be a .tex file...
             expected_nums["aousd_doc_build.*"] += 1
-            # ... and a recreate_pdf.sh file
-            expected_nums["recreate_pdf.sh"] = 1
+            # ... and a recreate_pdf.py file
+            expected_nums["recreate_pdf.py"] = 1
 
         for subdir_name in ("diff_from", "diff_to", "diff"):
             source_subdir = diff_output / subdir_name
