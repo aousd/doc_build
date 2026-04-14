@@ -125,13 +125,134 @@ def _pair_adjacent_changes(blocks: NodeList) -> NodeList:
         # Pair 1-to-1 as substitutions; excess remain as bare deletions/insertions.
         n_pairs = min(len(deletions), len(insertions))
         for j in range(n_pairs):
-            result.append(make_substitution_div(deletions[j], insertions[j]))
+            d, ins = deletions[j], insertions[j]
+            if _is_list_node(d) and _is_list_node(ins) and d.get("t") == ins.get("t"):
+                result.append(diff_list_nodes(d, ins))
+            else:
+                result.append(make_substitution_div(d, ins))
         for node in deletions[n_pairs:]:
             result.append(add_diff_meta(node, "deletion"))
         for node in insertions[n_pairs:]:
             result.append(add_diff_meta(node, "insertion"))
 
     return result
+
+
+LIST_TYPES = frozenset({"BulletList", "OrderedList"})
+
+
+def _is_list_node(node: PandocNode) -> bool:
+    return node.get("t") in LIST_TYPES
+
+
+def _get_list_items(node: PandocNode) -> List[List[PandocNode]]:
+    t, c = node.get("t"), node["c"]
+    if t == "BulletList":
+        return c
+    _, items = c  # OrderedList: c = [list_attrs, items]
+    return items
+
+
+def _build_list_with_items(node: PandocNode, items: List[List[PandocNode]]) -> PandocNode:
+    t, c = node.get("t"), node["c"]
+    if t == "BulletList":
+        return {"t": "BulletList", "c": items}
+    list_attrs, _ = c  # OrderedList
+    return {"t": "OrderedList", "c": [list_attrs, items]}
+
+
+def _item_to_block(item: List[PandocNode]) -> PandocNode:
+    """Convert a list item's blocks to a single block for substitution wrapping.
+
+    Single-block items are returned as-is (the common case: Plain or Para),
+    which lets the render filter apply word-level diffs.  Multi-block items
+    are wrapped in an anonymous Div so they can be passed to make_substitution_div.
+    """
+    if len(item) == 1:
+        return item[0]
+    return {"t": "Div", "c": [("", [], []), item]}
+
+
+def diff_list_nodes(old_node: PandocNode, new_node: PandocNode) -> PandocNode:
+    """Diff two same-type list nodes at the item level.
+
+    Returns a single reconstructed list node whose items carry per-item
+    insertion/deletion/substitution Div annotations.  For changed item pairs
+    where both items contain a single Plain/Para block, the substitution Div
+    triggers word-level inline diffing in the render filter.
+    """
+    old_items = _get_list_items(old_node)
+    new_items = _get_list_items(new_node)
+
+    # find_longest_common_subsequence serializes each element via json.dumps, so
+    # it works on list items (List[PandocNode]) just as well as on PandocNode.
+    lcs = find_longest_common_subsequence(old_items, new_items)  # type: ignore
+    lcs_strs = {json.dumps(item, sort_keys=True) for item in lcs}
+
+    # Walk like diff_block_lists to produce an ordered stream of (op, item) pairs.
+    raw: List[Tuple[str, List[PandocNode]]] = []
+    ptr_a, ptr_b = 0, 0
+    while ptr_a < len(old_items) or ptr_b < len(new_items):
+        a = old_items[ptr_a] if ptr_a < len(old_items) else None
+        b = new_items[ptr_b] if ptr_b < len(new_items) else None
+        a_str = json.dumps(a, sort_keys=True) if a is not None else None
+        b_str = json.dumps(b, sort_keys=True) if b is not None else None
+
+        if a is not None and a_str not in lcs_strs:
+            raw.append(("deletion", a))
+            ptr_a += 1
+        elif b is not None and b_str not in lcs_strs:
+            raw.append(("insertion", b))
+            ptr_b += 1
+        elif a is not None and b is not None:
+            raw.append(("equal", a))
+            ptr_a += 1
+            ptr_b += 1
+        elif ptr_a < len(old_items):
+            raw.append(("deletion", old_items[ptr_a]))
+            ptr_a += 1
+        else:
+            raw.append(("insertion", new_items[ptr_b]))
+            ptr_b += 1
+
+    # Pair consecutive deletion+insertion runs into substitution items.
+    result_items: List[List[PandocNode]] = []
+    i = 0
+    while i < len(raw):
+        op, item = raw[i]
+        if op == "equal":
+            result_items.append(item)
+            i += 1
+            continue
+        if op == "insertion":
+            result_items.append([add_diff_meta(_item_to_block(item), "insertion")])
+            i += 1
+            continue
+
+        # Collect a run of deletions then the immediately following insertions.
+        deletions: List[List[PandocNode]] = []
+        while i < len(raw) and raw[i][0] == "deletion":
+            deletions.append(raw[i][1])
+            i += 1
+        insertions: List[List[PandocNode]] = []
+        while i < len(raw) and raw[i][0] == "insertion":
+            insertions.append(raw[i][1])
+            i += 1
+
+        n_pairs = min(len(deletions), len(insertions))
+        for j in range(n_pairs):
+            result_items.append(
+                [make_substitution_div(
+                    _item_to_block(deletions[j]),
+                    _item_to_block(insertions[j]),
+                )]
+            )
+        for del_item in deletions[n_pairs:]:
+            result_items.append([add_diff_meta(_item_to_block(del_item), "deletion")])
+        for ins_item in insertions[n_pairs:]:
+            result_items.append([add_diff_meta(_item_to_block(ins_item), "insertion")])
+
+    return _build_list_with_items(old_node, result_items)
 
 
 def diff_block_lists(before_blocks: NodeList, after_blocks: NodeList) -> NodeList:
