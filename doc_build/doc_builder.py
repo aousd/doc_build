@@ -1,11 +1,12 @@
 #! /usr/bin/env python3
 import argparse
+import contextlib
 import inspect
+import os
+import re
 import shutil
 import subprocess
 import sys
-import os
-import re
 import time
 import types
 from pathlib import Path
@@ -212,151 +213,159 @@ class DocBuilder:
         spec = self.get_metadata_defaults_file()
         subtitle = self.get_subtitle(spec)
 
-        fontpath = (Path(__file__).resolve().parent / "front_page").as_posix() + "/"
-        dejavufontpath = (Path(__file__).resolve().parent / "fonts").as_posix() + "/"
+        front_page_dir = Path(__file__).resolve().parent / "front_page"
+        fonts_dir = Path(__file__).resolve().parent / "fonts"
+
+        # Use paths relative to artifacts_dir (the CWD when pandoc/tectonic
+        # runs) so fontspec can locate fonts on any OS without drive-letter
+        # issues in absolute paths.
+        fontpath = Path(os.path.relpath(front_page_dir, artifacts_dir)).as_posix() + "/"
+        dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
         doc_build_filters = []
         for doc_filter in self.get_doc_build_filters():
             doc_build_filters.extend(["-F", doc_filter])
 
-        # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it
-        os.chdir(artifacts_dir)
-        shared_command = [
-            "--defaults",
-            spec,
-            combined,
-            *doc_build_filters,
-            "-V",
-            f"date={datetime.today().strftime('%Y-%m-%d')}",
-            "-V",
-            f"fontpath={fontpath}",
-            "-V",
-            f"dejavufontpath={dejavufontpath}",
-            "-V",
-            f"subtitle={subtitle}",
-            "-V",
-            "geometry:margin=1in",
-            # "geometry:margin=1cm",
-            # "-V", "geometry:top=1cm", "-V", "geometry:bottom=2cm", "-V", "geometry:left=1cm", "-V", "geometry:right=1cm",
-            "-V",
-            # "linestretch=1.0",
-            "linestretch=1.25",
-            "-V",
-            "fontsize=10pt",
-            # "-V",
-            # "mainfont=DejaVu Serif",
-            # "-V",
-            # "monofont=DejaVu Sans Mono",
-            # "-V",
-            # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
-            "-V",
-            f"AOUSD_ARTIFACTS_ROOT={artifacts_dir}",
-            "-V", f"diff-section-ins-pale-green={DIFF_SECTION_INS_PALE_GREEN}",
-            "-V", f"diff-section-del-pale-red={DIFF_SECTION_DEL_PALE_RED}",
-            "-V", f"diff-word-ins-green={DIFF_WORD_INS_GREEN}",
-            "-V", f"diff-word-del-red={DIFF_WORD_DEL_RED}",
-            "-V",
-            "colorlinks=true",
-            "-V",
-            "linkcolor=OliveGreen",
-            "-V",
-            "toccolor=OliveGreen",
-            "-V",
-            "citecolor=OliveGreen",
-            "-V",
-            "urlcolor=blue",
-            "--toc=true",
-            "--toc-depth",
-            "2",
-            "--standalone",
-            "--number-sections=true",
-            "--from",
-            MARKDOWN_FORMAT,
-            "--pdf-engine=tectonic",
-        ]
-
-        if not args.no_draft:
-            log("\tAdding Draft Watermark...")
-            shared_command.extend(["-V", "draft=true"])
-
-        pdf = None
-        docx = None
-        html = None
-        md = None
-
-        if not args.no_md:
-            md = output_dir / f"{filename}.md"
-            md_template = self.get_scripts_root() / "template" / "default.md"
-            bundle_images_filter = self.get_filter("bundle_images")
-            bundle_images_args = [
-                "-M", f"AOUSD_OUTPUT_DIR={output_dir}",
-                "-M", f"AOUSD_IMAGES_ROOT={artifacts_dir}",
-                "-F", bundle_images_filter,
+        # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it.
+        # contextlib.chdir restores the previous cwd on exit (even on exception), so on Windows the
+        # process doesn't hold a handle to the directory and temp-dir cleanup succeeds.
+        with contextlib.chdir(artifacts_dir):
+            shared_command = [
+                "--defaults",
+                spec,
+                combined,
+                *doc_build_filters,
+                "-V",
+                f"date={datetime.today().strftime('%Y-%m-%d')}",
+                "-V",
+                f"fontpath={fontpath}",
+                "-V",
+                f"dejavufontpath={dejavufontpath}",
+                "-V",
+                f"subtitle={subtitle}",
+                "-V",
+                "geometry:margin=1in",
+                # "geometry:margin=1cm",
+                # "-V", "geometry:top=1cm", "-V", "geometry:bottom=2cm", "-V", "geometry:left=1cm", "-V", "geometry:right=1cm",
+                "-V",
+                # "linestretch=1.0",
+                "linestretch=1.25",
+                "-V",
+                "fontsize=10pt",
+                # "-V",
+                # "mainfont=DejaVu Serif",
+                # "-V",
+                # "monofont=DejaVu Sans Mono",
+                # "-V",
+                # "monofontoptions=Scale=0.8",  # scale down a bit for better sizing of listings and PEG
+                "-V",
+                f"AOUSD_ARTIFACTS_ROOT={artifacts_dir}",
+                "-V", f"diff-section-ins-pale-green={DIFF_SECTION_INS_PALE_GREEN}",
+                "-V", f"diff-section-del-pale-red={DIFF_SECTION_DEL_PALE_RED}",
+                "-V", f"diff-word-ins-green={DIFF_WORD_INS_GREEN}",
+                "-V", f"diff-word-del-red={DIFF_WORD_DEL_RED}",
+                "-V",
+                "colorlinks=true",
+                "-V",
+                "linkcolor=OliveGreen",
+                "-V",
+                "toccolor=OliveGreen",
+                "-V",
+                "citecolor=OliveGreen",
+                "-V",
+                "urlcolor=blue",
+                "--toc=true",
+                "--toc-depth",
+                "2",
+                "--standalone",
+                "--number-sections=true",
+                "--from",
+                MARKDOWN_FORMAT,
+                "--pdf-engine=tectonic",
             ]
-            log(f"\tBuilding Markdown to {md}...")
-            pandoc(shared_command + bundle_images_args + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
 
-        if not args.no_html:
-            html = output_dir / f"{filename}.html"
-            html_template = self.get_scripts_root() / "template" / "default.html5"
-            log(f"\tBuilding HTML to {html}...")
-            pandoc(
-                shared_command
-                + [
-                    "-o",
-                    html,
-                    "--toc",
-                    "--standalone",
-                    "--mathml",
-                    "--embed-resources",
-                    f"--template={html_template}",
+            if not args.no_draft:
+                log("\tAdding Draft Watermark...")
+                shared_command.extend(["-V", "draft=true"])
+
+            pdf = None
+            docx = None
+            html = None
+            md = None
+
+            if not args.no_md:
+                md = output_dir / f"{filename}.md"
+                md_template = self.get_scripts_root() / "template" / "default.md"
+                bundle_images_filter = self.get_filter("bundle_images")
+                bundle_images_args = [
+                    "-M", f"AOUSD_OUTPUT_DIR={output_dir}",
+                    "-M", f"AOUSD_IMAGES_ROOT={artifacts_dir}",
+                    "-F", bundle_images_filter,
                 ]
-            )
+                log(f"\tBuilding Markdown to {md}...")
+                pandoc(shared_command + bundle_images_args + ["-o", md, "--to", MARKDOWN_OUTPUT_FORMAT, f"--template={md_template}"])
 
-        if not args.no_pdf:
-            pdf = output_dir / f"{filename}.pdf"
-            template_dir = self.get_scripts_root() / "template"
-            latex_template = template_dir / "default.latex"
-            latex_diff_preamble = template_dir / "latex_diff_preamble.tex"
-            log(f"\tBuilding PDF to {pdf}...")
+            if not args.no_html:
+                html = output_dir / f"{filename}.html"
+                html_template = self.get_scripts_root() / "template" / "default.html5"
+                log(f"\tBuilding HTML to {html}...")
+                pandoc(
+                    shared_command
+                    + [
+                        "-o",
+                        html,
+                        "--toc",
+                        "--standalone",
+                        "--mathml",
+                        "--embed-resources",
+                        f"--template={html_template}",
+                    ]
+                )
 
-            def stderr_processor(std_err):
-                lines = std_err.splitlines()
+            if not args.no_pdf:
+                pdf = output_dir / f"{filename}.pdf"
+                template_dir = self.get_scripts_root() / "template"
+                latex_template = template_dir / "default.latex"
+                latex_diff_preamble = template_dir / "latex_diff_preamble.tex"
+                log(f"\tBuilding PDF to {pdf}...")
 
-                for line in lines:
-                    # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
-                    if line.startswith(
-                        "warning: Trying to include PDF file with version "
-                    ):
-                        continue
-                    # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
-                    if line.startswith("warning: texput.") and (
-                        "Overfull " in line or "Underfull " in line
-                    ):
-                        continue
-                    # Can also be safely ignored
-                    if line.startswith("warning: accessing absolute path "):
-                        continue
+                def stderr_processor(std_err):
+                    lines = std_err.splitlines()
 
-                    # Just reporting fluff
-                    if line.startswith("warning: warnings were issued"):
-                        continue
+                    for line in lines:
+                        # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
+                        if line.startswith(
+                            "warning: Trying to include PDF file with version "
+                        ):
+                            continue
+                        # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
+                        if line.startswith("warning: texput.") and (
+                            "Overfull " in line or "Underfull " in line
+                        ):
+                            continue
+                        # Can also be safely ignored
+                        if line.startswith("warning: accessing absolute path "):
+                            continue
 
-                    log(line, file=sys.stderr)
+                        # Just reporting fluff
+                        if line.startswith("warning: warnings were issued"):
+                            continue
 
-            pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
-            pandoc(
-                shared_command + [
-                    "-o", pdf,
-                    f"--template={latex_template}",
-                ] + pdf_extra,
-                stderr_processor=stderr_processor,
-            )
+                        log(line, file=sys.stderr)
 
-        if not args.no_docx and not skip_docx:
-            docx = output_dir / f"{filename}.docx"
-            log(f"\tBuilding DocX to {docx}...")
-            pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
+                pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
+                pandoc(
+                    shared_command + [
+                        "-o", pdf,
+                        f"--template={latex_template}",
+                    ] + pdf_extra,
+                    stderr_processor=stderr_processor,
+                )
+
+            if not args.no_docx and not skip_docx:
+                docx = output_dir / f"{filename}.docx"
+                log(f"\tBuilding DocX to {docx}...")
+                pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
 
         return pdf, docx, html, md
 
@@ -401,7 +410,7 @@ class DocBuilder:
         log(f"\tFlattening {source}...")
         substitutions = substitutions or {}
         artifacts = self.get_artifacts_dir(args.output)
-        with open(source, "r") as source_file:
+        with open(source, "r", encoding="utf-8") as source_file:
             lines = source_file.readlines()
             with open(output, "w", encoding="utf-8") as out:
                 for line in lines:
