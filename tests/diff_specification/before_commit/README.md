@@ -151,6 +151,44 @@ This section exists in both versions but the list has several types of changes.
 - This item will have just one word altered
 - This item will also be kept in the list without any changes
 
+## Block Quotes
+
+### Unchanged
+
+This blockquote is identical in both versions.
+
+> This blockquote paragraph is unchanged throughout both versions.
+>
+> This second paragraph is also identical in before and after.
+
+### Removed
+
+This entire section and its blockquote are present only in the before version.
+
+> This blockquote will be completely removed.
+>
+> None of these paragraphs survive to the after version.
+
+### Bit That Stays the Same
+
+...just so that the removed and added sub-sections are not paired as a substitution.
+
+### Mixed Changes
+
+This blockquote exists in both versions but has internal changes.
+
+> This paragraph will stay the same throughout both versions.
+>
+> This paragraph will be completely removed from the blockquote.
+>
+> This paragraph is unchanged; it separates the deletion above from the replacements below.
+>
+> This paragraph will be fully replaced with entirely different content.
+>
+> This paragraph will have just one word altered.
+>
+> This final paragraph will also be kept without any changes.
+
 ## Line Blocks
 
 ### Unchanged
