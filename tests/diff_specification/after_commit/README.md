@@ -161,6 +161,16 @@ This section exists in both versions but the list has several types of changes.
     result = new_function()
     ```
 
+- This item contains a blockquote with a nested code block that will be modified:
+
+    > Text before the nested code block.
+    >
+    > ```python
+    > nested = new_nested()
+    > ```
+    >
+    > Text after the nested code block.
+
 - This item will also be kept in the list without any changes
 - This brand new item was added to the end of the list
 
@@ -185,6 +195,18 @@ This entire section and its blockquote appear only in the after version.
 > This blockquote did not exist in the previous version.
 >
 > All of these paragraphs are brand new additions.
+
+### Changed Block Quote With Code Block
+
+This blockquote contains a nested code block and will be modified.
+
+> Some introductory text before the code.
+>
+> ```python
+> result = new_function()
+> ```
+>
+> Some concluding text after the code.
 
 ### Mixed Changes
 

@@ -160,6 +160,16 @@ This section exists in both versions but the list has several types of changes.
     result = old_function()
     ```
 
+- This item contains a blockquote with a nested code block that will be modified:
+
+    > Text before the nested code block.
+    >
+    > ```python
+    > nested = old_nested()
+    > ```
+    >
+    > Text after the nested code block.
+
 - This item will also be kept in the list without any changes
 
 ## Block Quotes
@@ -183,6 +193,18 @@ This entire section and its blockquote are present only in the before version.
 ### Bit That Stays the Same
 
 ...just so that the removed and added sub-sections are not paired as a substitution.
+
+### Changed Block Quote With Code Block
+
+This blockquote contains a nested code block and will be modified.
+
+> Some introductory text before the code.
+>
+> ```python
+> result = old_function()
+> ```
+>
+> Some concluding text after the code.
 
 ### Mixed Changes
 
