@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Pandoc PDF-engine wrapper: captures intermediate LaTeX then forwards to tectonic.
+
+When pandoc generates a PDF via --pdf-engine, it pipes the intermediate LaTeX
+to the engine via stdin (passing "-" as an argument).  This wrapper intercepts
+that stream, optionally saves it to disk, then forwards it to the real tectonic
+binary unchanged.
+
+Named "tectonic" so pandoc uses stdin mode when passed as --pdf-engine.
+
+After saving the .tex, any image paths inside pandoc's temp media directory
+are copied to a stable directory and the saved .tex is rewritten to use those
+stable paths.  This lets a subsequent tectonic invocation compile the .tex
+after pandoc has exited and cleaned up its temps.
+
+Environment variables:
+  REAL_TECTONIC_PATH  Path to the real tectonic binary (required).
+  TEX_CAPTURE_PATH    Path to write the captured LaTeX to (optional).
+  TEX_MEDIA_DIR       Directory to copy temp media into (optional; defaults
+                      to the directory containing TEX_CAPTURE_PATH).
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def stabilize_tex_media(tex_path: Path, media_dir: Path) -> None:
+    """Copy pandoc temp-dir media into media_dir and rewrite paths in the .tex.
+
+    Pandoc extracts images to a short-lived temp directory.  The captured
+    .tex references those temp paths.  This function copies each temp file
+    into media_dir and rewrites the .tex in-place so the via-tex tectonic
+    run can find the images after pandoc has exited.
+    """
+    content = tex_path.read_text(encoding="utf-8")
+
+    # Match any absolute /tmp/... path followed by a file extension.
+    temp_path_re = re.compile(r"/tmp/[^\s{}\\]+\.[A-Za-z]+")
+
+    replacements = {}
+    for match in temp_path_re.finditer(content):
+        orig = match.group(0)
+        if orig in replacements:
+            continue
+        src = Path(orig)
+        if not src.exists():
+            continue
+        dest = media_dir / src.name
+        shutil.copy2(src, dest)
+        replacements[orig] = os.path.relpath(dest, tex_path.parent)
+
+    if not replacements:
+        return
+
+    for orig, stable in replacements.items():
+        content = content.replace(orig, stable)
+    tex_path.write_text(content, encoding="utf-8")
+
+
+def main():
+    real_tectonic = os.environ.get("REAL_TECTONIC_PATH")
+    if not real_tectonic:
+        sys.exit("REAL_TECTONIC_PATH is not set")
+
+    latex_bytes = sys.stdin.buffer.read()
+
+    capture_path = os.environ.get("TEX_CAPTURE_PATH")
+    if capture_path:
+        tex_path = Path(capture_path)
+        tex_path.write_bytes(latex_bytes)
+
+        media_dir_env = os.environ.get("TEX_MEDIA_DIR")
+        media_dir = Path(media_dir_env) if media_dir_env else tex_path.parent
+        media_dir.mkdir(parents=True, exist_ok=True)
+        stabilize_tex_media(tex_path, media_dir)
+
+    result = subprocess.run([real_tectonic] + sys.argv[1:], input=latex_bytes)
+    sys.exit(result.returncode)
+
+
+if __name__ == "__main__":
+    main()

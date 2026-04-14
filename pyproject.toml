@@ -21,7 +21,7 @@ doc_build = { path = ".", editable = true }
 [tool.pixi.tasks]
 build = "python tests/build_scripts/build_docs.py build"
 build-diff = "python tests/build_scripts/build_diff.py"
-test = { depends-on = ["build", "build-diff"] }
+test = { cmd = "python -c 'import sys; sys.argv[1:] and sys.exit(\"test does not accept extra args; pass them directly to build or build-diff\")'", depends-on = ["build", "build-diff"] }
 
 [tool.pixi.workspace]
 channels = [

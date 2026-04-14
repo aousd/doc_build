@@ -5,6 +5,7 @@ import inspect
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -107,6 +108,7 @@ class ExecCommand:
 
 
 pandoc = ExecCommand("pandoc")
+tectonic = ExecCommand("tectonic")
 git = ExecCommand("git")
 
 
@@ -289,7 +291,6 @@ class DocBuilder:
                 "--number-sections=true",
                 "--from",
                 MARKDOWN_FORMAT,
-                "--pdf-engine=tectonic",
             ]
 
             if not args.no_draft:
@@ -335,7 +336,12 @@ class DocBuilder:
                 template_dir = self.get_scripts_root() / "template"
                 latex_template = template_dir / "default.latex"
                 latex_diff_preamble = template_dir / "latex_diff_preamble.tex"
-                log(f"\tBuilding PDF to {pdf}...")
+
+                # Fix the build timestamp so repeated runs produce bit-for-bit
+                # identical PDFs (affects embedded dates and pdf-trailer-id).
+                source_date_epoch = os.environ.get("SOURCE_DATE_EPOCH") or str(int(time.time()))
+                build_env = os.environ.copy()
+                build_env["SOURCE_DATE_EPOCH"] = source_date_epoch
 
                 def stderr_processor(std_err):
                     lines = std_err.splitlines()
@@ -362,13 +368,64 @@ class DocBuilder:
                         log(line, file=sys.stderr)
 
                 pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
-                pandoc(
-                    shared_command + [
-                        "-o", pdf,
-                        f"--template={latex_template}",
-                    ] + pdf_extra,
-                    stderr_processor=stderr_processor,
-                )
+                latex_cmd_base = shared_command + [
+                    f"--template={latex_template}",
+                ] + pdf_extra
+
+                if not getattr(args, "keep_pdf_latex", False):
+                    # Standard path: pandoc pipes directly to tectonic via stdin.
+                    log(f"\tBuilding PDF to {pdf}...")
+                    pandoc(
+                        latex_cmd_base + ["--pdf-engine=tectonic", "-o", pdf],
+                        stderr_processor=stderr_processor,
+                        env=build_env,
+                    )
+                else:
+                    tex_file = output_dir / f"{filename}.tex"
+                    recreate_script = output_dir / "recreate_pdf.sh"
+
+                    # A capture wrapper named "tectonic" intercepts the LaTeX pandoc
+                    # pipes to tectonic, saves it to disk, then forwards to the real
+                    # tectonic.  We use the bare engine name "--pdf-engine=tectonic" so
+                    # pandoc applies its own SVG pre-conversion (only triggered by name,
+                    # not a full path).  The wrapper is found first because its parent
+                    # dir is prepended to PATH.
+                    capture_wrapper = self.get_scripts_root() / "tools" / "tectonic"
+                    # Ensure executable bit is set (can be lost when installed from git)
+                    _mode = capture_wrapper.stat().st_mode
+                    if not (_mode & stat.S_IXUSR):
+                        capture_wrapper.chmod(_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+                    capture_env = build_env.copy()
+                    capture_env["REAL_TECTONIC_PATH"] = tectonic.binary
+                    capture_env["TEX_CAPTURE_PATH"] = str(tex_file)
+                    capture_env["TEX_MEDIA_DIR"] = str(output_dir / "images")
+                    capture_env["PATH"] = f"{capture_wrapper.parent}:{capture_env.get('PATH', '')}"
+
+                    log(f"\tBuilding PDF to {pdf}...")
+                    pandoc(
+                        latex_cmd_base + ["--pdf-engine=tectonic", "-o", pdf],
+                        stderr_processor=stderr_processor,
+                        env=capture_env,
+                    )
+
+                    recreate_script.write_text(
+                        f"#!/bin/sh\n"
+                        f"set -e\n"
+                        "\n"
+                        f"SOURCE_DATE_EPOCH={source_date_epoch}\n"
+                        f"export SOURCE_DATE_EPOCH\n"
+                        f'SCRIPT_DIR=$(dirname "$0")\n'
+                        f'cd "${{SCRIPT_DIR}}"\n'
+                        f'{tectonic.binary} - --outdir . < "{tex_file.name}"\n'
+                        f"mv texput.pdf '{pdf.name}'\n"
+                    )
+                    recreate_script.chmod(
+                        recreate_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                    )
+
+                    log(f"\tCaptured LaTeX: {tex_file}")
+                    log(f"\tTo recreate PDF from .tex: {recreate_script}")
 
             if not args.no_docx and not skip_docx:
                 docx = output_dir / f"{filename}.docx"
@@ -869,6 +926,12 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
+        )
+        build_parser.add_argument(
+            "--keep-pdf-latex",
+            help="Capture the intermediate LaTeX when building PDF, alongside a "
+            "script to recreate the PDF from the .tex (implies tectonic wrapper)",
+            action="store_true",
         )
         build_parser.add_argument(
             "--diff",
