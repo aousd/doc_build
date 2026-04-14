@@ -182,6 +182,18 @@ def _has_display_math(inlines: List[Dict]) -> bool:
     return False
 
 
+def _has_link(inlines: List[Dict]) -> bool:
+    """Return True if any node in inlines is a Link element.
+
+    Used to skip ulem text-decoration commands (\\uline, \\sout) when content
+    contains hyperlinks.  Hyperref's link commands manipulate TeX group state
+    internally (via \\aftergroup hooks used for color/link scope cleanup).
+    ulem's token scanner opens its own groups, so hyperref's \\aftergroup fires
+    on the wrong group, causing 'Extra }, or forgotten \\endgroup' errors.
+    """
+    return any(node.get("t") == "Link" for node in inlines)
+
+
 ###############################################################################
 # style_inlines - recursive wrapper (used for whole-block "other formats")
 ###############################################################################
@@ -249,14 +261,25 @@ def _latex_span_wrap(diff_class: str, content: List[Dict]) -> List[Dict]:
     Uses \\colorbox{DiffSpanXxx}{\\strut \\uline/\\sout{content}} for text
     content, and \\colorbox{DiffSpanXxx}{\\strut \\underline/\\textsout{content}}
     when content contains inline math (ulem cannot wrap math).
-    Display math cannot go inside any box; the block-level tcolorbox background
-    is sufficient, so span-level styling is skipped entirely.
+    When content contains links or display math, text decoration is skipped
+    entirely and only the colored box background is emitted: hyperref's link
+    commands use \\aftergroup hooks that interfere with ulem's token scanner,
+    and display math cannot be nested inside \\colorbox at all.
     """
     if _has_display_math(content):
         # Display math cannot be inside \colorbox at all.  Background is
         # applied at the block level via tcolorbox; no span-level styling.
         return list(content)
     bg = _LATEX_WORD_DIFF_BG[diff_class]
+    if _has_link(content):
+        # Links use \hyperref/\href which manipulate TeX group state via
+        # \aftergroup hooks; ulem's token scanner opens its own groups and the
+        # interaction causes "Extra }" errors.  Colorbox background is enough.
+        return (
+            [_raw_inline("latex", f"\\colorbox{{{bg}}}{{\\strut ")]
+            + content
+            + [_raw_inline("latex", "}")]
+        )
     inner = _latex_text_cmd_wrap(diff_class, content, math=_has_math(content))
     return (
         [_raw_inline("latex", f"\\colorbox{{{bg}}}{{\\strut ")]
@@ -424,15 +447,14 @@ def render_inlines_raw(inlines: List[Dict], format: str, diff_class: str) -> Lis
     background is applied at the Div level by handle_whole_block).
     For GFM markdown, the block-level emoji prefix (added by handle_whole_block)
     is sufficient; no additional inline markup is needed on the content.
-    For LaTeX, applies ulem text decoration, or \\underline/\\textsout for
-    content containing inline math (ulem cannot wrap math).
-    The pale block background is added at the block level by render_whole_block.
+    For LaTeX, no text decoration is added; the pale background from
+    _latex_block_bg_wrap / tcolorbox is sufficient. ulem commands like
+    \\uline and \\sout scan tokens internally and break when the content
+    contains \\hyperref or other commands that change TeX group state.
     """
     if format == "latex":
-        if _has_display_math(inlines):
-            # Background applied at block level via tcolorbox; no text styling.
-            return list(inlines)
-        return _latex_text_cmd_wrap(diff_class, inlines, math=_has_math(inlines))
+        # Background applied at block level; no inline text decoration.
+        return list(inlines)
     elif format == "html":
         decoration = _HTML_TEXT_DECORATION[diff_class]
         open_tag = f'<span style="text-decoration: {decoration};">'
