@@ -12,6 +12,7 @@ $endif$
 % set the notes to have an orange color
 \usepackage[most]{tcolorbox}
 \definecolor{notebg}{RGB}{255,255,204}
+\colorlet{notebgdefault}{notebg}
 \tcbset{
   blockquote/.style={
     colback=notebg,
