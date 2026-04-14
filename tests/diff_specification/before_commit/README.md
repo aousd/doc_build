@@ -150,3 +150,36 @@ This section exists in both versions but the list has several types of changes.
 - This item will be fully replaced with entirely different content
 - This item will have just one word altered
 - This item will also be kept in the list without any changes
+
+## Line Blocks
+
+### Unchanged
+
+This line block is identical in both versions.
+
+| This line is unchanged throughout both versions.
+| This line is also identical in before and after.
+| This final line remains the same as well.
+
+### Removed
+
+This entire section and its line block are present only in the before version.
+
+| This line block will be completely removed.
+| None of these lines survive to the after version.
+| The entire section disappears in the next revision.
+
+### Bit That Stays the Same
+
+...just so that the removed and added sub-sections are not paired as a substitution.
+
+### Mixed Changes
+
+This line block exists in both versions but has internal changes.
+
+| This line will stay the same throughout both versions.
+| This line will be completely removed from the line block.
+| This line is unchanged; it separates the deletion above from the replacements below.
+| This line will be fully replaced with entirely different content.
+| This line will have just one word altered.
+| This final line will also be kept without any changes.
