@@ -728,18 +728,63 @@ def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
 # Top-level filter function
 ###############################################################################
 
+_DIFF_TYPE_LABEL = {
+    "insertion": "Add",
+    "deletion": "Remove",
+    "substitution": "Substitution",
+}
+
+
+def _get_meta_str(meta: Dict, key: str) -> Optional[str]:
+    """Extract a plain string from pandoc metadata (MetaString or MetaInlines)."""
+    entry = meta.get(key)
+    if entry is None:
+        return None
+    t = entry.get("t")
+    if t == "MetaString":
+        return entry["c"]
+    if t == "MetaInlines":
+        parts = []
+        for node in entry["c"]:
+            nt = node.get("t")
+            if nt == "Str":
+                parts.append(node["c"])
+            elif nt == "Space":
+                parts.append(" ")
+        return "".join(parts)
+    return None
+
+
+def _make_diff_label_para(from_pretty: str, to_pretty: str, diff_type: str) -> Dict:
+    label = f"Diff - from {from_pretty} to {to_pretty} - {_DIFF_TYPE_LABEL[diff_type]}"
+    return {"t": "Para", "c": [{"t": "Str", "c": label}]}
+
 
 def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List[Dict]]:
     if key != "Div":
         return None
     attrs, content = value
     classes = attrs[1]
+
+    from_pretty = _get_meta_str(meta, "diff-from-pretty")
+    to_pretty = _get_meta_str(meta, "diff-to-pretty")
+    has_label = from_pretty is not None and to_pretty is not None
+
     if "substitution" in classes:
-        return handle_substitution(content, format)
+        result = handle_substitution(content, format)
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "substitution")] + result
+        return result
     elif "insertion" in classes:
-        return handle_whole_block(content, format, "insertion")
+        result = handle_whole_block(content, format, "insertion")
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "insertion")] + result
+        return result
     elif "deletion" in classes:
-        return handle_whole_block(content, format, "deletion")
+        result = handle_whole_block(content, format, "deletion")
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "deletion")] + result
+        return result
     return None
 
 
