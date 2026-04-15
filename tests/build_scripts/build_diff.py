@@ -75,6 +75,9 @@ def _setup_temp_repo(tmp: Path) -> tuple[str, str]:
         shutil.rmtree(spec_dir)
 
     _git(["init", "--initial-branch=main"], cwd=tmp)
+    # Add a fake origin so get_file_base_name() derives "doc_build" from the remote URL,
+    # matching the aousd_doc_build.* naming used in the copy/verify step below.
+    _git(["remote", "add", "origin", "https://github.com/aousd/doc_build.git"], cwd=tmp)
 
     # Before commit - fixed author date so hash is deterministic
     shutil.copytree(FIXTURES_DIR / "before_commit", spec_dir)
@@ -134,16 +137,20 @@ def build_diff(build_html: bool, build_pdf: bool) -> None:
         print("Running DocBuilder.build_docs() with --diff...")
         builder.build_docs(args)
 
+        # md is always built; html and pdf are optional
+        num_expected = 1 + int(build_html) + int(build_pdf)
+
         # Copy outputs to tests/build/ with diff_test-* naming
         for subdir_name in ("diff_from", "diff_to", "diff"):
             source_subdir = diff_output / subdir_name
             dest_subdir = BUILD_DIR / subdir_name
             dest_subdir.mkdir(parents=True, exist_ok=True)
-            files = sorted(source_subdir.glob("aousd_doc_build.*"))
 
-            # we expect an output html, md, and pdf for each diff
-            if len(files) != 3:
-                raise RuntimeError(f"Expected {num_expected} files for {pattern}, got {len(files)}: {files}")
+            glob_pattern = "aousd_doc_build.*"
+            files = sorted(source_subdir.glob(glob_pattern))
+
+            if len(files) != num_expected:
+                raise RuntimeError(f"Expected {num_expected} files for {glob_pattern}, got {len(files)}: {files}")
             for source in files:
                 destination = dest_subdir / source.name
                 shutil.copy(source, destination)
