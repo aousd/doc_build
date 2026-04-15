@@ -11,3 +11,4 @@ DIFF_SECTION_INS_PALE_GREEN = "e6ffec"  # pale green - block-level insertion bac
 DIFF_SECTION_DEL_PALE_RED   = "ffeef0"  # pale red   - block-level deletion background
 DIFF_WORD_INS_GREEN         = "acf2bd"  # green      - word-level insertion background
 DIFF_WORD_DEL_RED           = "ffb5bd"  # red        - word-level deletion background
+DIFF_COMMENT_GRAY           = "808080"  # gray       - diff comment text

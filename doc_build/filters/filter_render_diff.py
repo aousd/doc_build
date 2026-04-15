@@ -12,6 +12,7 @@ from diff_match_patch import diff_match_patch
 from pandocfilters import Strikeout, toJSONFilter
 
 from doc_build.diff_colors import (
+    DIFF_COMMENT_GRAY,
     DIFF_SECTION_DEL_PALE_RED,
     DIFF_SECTION_INS_PALE_GREEN,
     DIFF_WORD_DEL_RED,
@@ -58,6 +59,36 @@ _HTML_TEXT_DECORATION = {
     "insertion": "underline",
     "deletion": "line-through",
 }
+
+###############################################################################
+# Comment/label styling (gray italic small)
+###############################################################################
+
+_COMMENT_GRAY_HTML = f"#{DIFF_COMMENT_GRAY}"
+_COMMENT_GRAY_LATEX = DIFF_COMMENT_GRAY
+
+
+def _make_styled_comment_block(text: str, format: str) -> Dict:
+    """Return a block rendering text as a small gray italic diff comment.
+
+    HTML and LaTeX: full styling via per-format raw blocks.
+    GFM and other formats: italic only, applied at AST level via Emph.
+    """
+    if format == "html":
+        html = (
+            f'<p style="color: {_COMMENT_GRAY_HTML}; font-size: smaller;'
+            f' font-style: italic;">{text}</p>'
+        )
+        return {"t": "RawBlock", "c": ["html", html]}
+    elif format == "latex":
+        latex = (
+            f"\\noindent{{\\small\\textcolor[HTML]{{{_COMMENT_GRAY_LATEX}}}"
+            f"{{\\textit{{{text}}}}}}}"
+        )
+        return {"t": "RawBlock", "c": ["latex", latex]}
+    else:
+        # GFM and other formats: italics at AST level; gray/size not supported
+        return {"t": "Para", "c": [{"t": "Emph", "c": [Str(text)]}]}
 
 ###############################################################################
 # GFM diff styling
@@ -755,9 +786,9 @@ def _get_meta_str(meta: Dict, key: str) -> Optional[str]:
     return None
 
 
-def _make_diff_label_para(from_pretty: str, to_pretty: str, diff_type: str) -> Dict:
+def _make_diff_label_para(from_pretty: str, to_pretty: str, diff_type: str, format: str) -> Dict:
     label = f"Diff - from {from_pretty} to {to_pretty} - {_DIFF_TYPE_LABEL[diff_type]}"
-    return {"t": "Para", "c": [{"t": "Str", "c": label}]}
+    return _make_styled_comment_block(label, format)
 
 
 def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List[Dict]]:
@@ -773,17 +804,17 @@ def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List
     if "substitution" in classes:
         result = handle_substitution(content, format)
         if has_label:
-            result = [_make_diff_label_para(from_pretty, to_pretty, "substitution")] + result
+            result = [_make_diff_label_para(from_pretty, to_pretty, "substitution", format)] + result
         return result
     elif "insertion" in classes:
         result = handle_whole_block(content, format, "insertion")
         if has_label:
-            result = [_make_diff_label_para(from_pretty, to_pretty, "insertion")] + result
+            result = [_make_diff_label_para(from_pretty, to_pretty, "insertion", format)] + result
         return result
     elif "deletion" in classes:
         result = handle_whole_block(content, format, "deletion")
         if has_label:
-            result = [_make_diff_label_para(from_pretty, to_pretty, "deletion")] + result
+            result = [_make_diff_label_para(from_pretty, to_pretty, "deletion", format)] + result
         return result
     return None
 
