@@ -300,3 +300,20 @@ A blockquote three levels deep (list item > sub-item > blockquote); only the quo
 
     - This sub-item is also unchanged.
 - This last top-level item is also unchanged.
+
+### Four-Level Mixed List
+
+A four-level mixed list (bullet > numbered > bullet > numbered) where only the deepest item changes.
+
+- Top-level bullet A: unchanged throughout both versions
+- Top-level bullet B: has a numbered sub-list
+    1. Numbered B1: unchanged
+    2. Numbered B2: has a bullet sub-sub-list
+        - Bullet B2a: unchanged
+        - Bullet B2b: has a numbered sub-sub-sub-list
+            1. Deepest item: unchanged
+            2. Deepest item: this one has been modified
+            3. Deepest item: also unchanged
+        - Bullet B2c: unchanged
+    3. Numbered B3: unchanged
+- Top-level bullet C: unchanged throughout both versions
