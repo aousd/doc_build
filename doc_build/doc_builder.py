@@ -43,11 +43,11 @@ DIFF_BEFORE_FILENAME_TEMPLATE = "{base}.before_{from_short}"
 DIFF_AFTER_FILENAME_TEMPLATE = "{base}.after_{to_short}"
 DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 
-class _OneOrTwoArgsAction(argparse.Action):
+class _ZeroToTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if values is not None and hasattr(values, "__len__") and len(values) > 2:
             raise argparse.ArgumentError(
-                self, f"{option_string} takes 1 or 2 arguments, got {len(values)}"
+                self, f"{option_string} takes 0 to 2 arguments, got {len(values)}"
             )
         setattr(namespace, self.dest, values)
 
@@ -129,8 +129,16 @@ class DocBuilder:
         if args.clean:
             self.clean_docs(args)
 
-        if args.diff:
-            if len(args.diff) == 1:
+        if args.diff is not None:
+            if len(args.diff) == 0:
+                latest_tag = self.get_latest_semver_tag()
+                if latest_tag is None:
+                    raise ValueError(
+                        "--diff given with no arguments, but no semver tags (vX.Y.Z) "
+                        "were found in the history of HEAD"
+                    )
+                args.diff = [latest_tag, "HEAD"]
+            elif len(args.diff) == 1:
                 args.diff.append("HEAD")
             elif len(args.diff) > 2:
                 raise ValueError(
@@ -735,6 +743,38 @@ class DocBuilder:
         args = ["rev-parse", "--short", ref] if short else ["rev-parse", ref]
         return git.get_output(args, cwd=self.get_repo_root()).strip()
 
+    _SEMVER_TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
+
+    def get_latest_tag(
+        self,
+        commit: str = "HEAD",
+        glob: Optional[str] = None,
+        pattern: Optional[re.Pattern] = None,
+    ) -> Optional[str]:
+        """Return the most recent tag reachable from commit, or None.
+
+        glob:    shell glob passed to `git tag --list` to pre-filter tags
+        pattern: compiled regexp used to filter results after git returns them
+        """
+        cmd = ["tag", "--list", "--sort=-version:refname", f"--merged={commit}"]
+        if glob is not None:
+            cmd.append(glob)
+        tag_output = git.get_output(cmd, cwd=self.get_repo_root())
+        return next(
+            (
+                line.strip()
+                for line in tag_output.splitlines()
+                if pattern is None or pattern.match(line.strip())
+            ),
+            None,
+        )
+
+    def get_latest_semver_tag(self, commit: str = "HEAD") -> Optional[str]:
+        """Return the most recent vX.Y.Z tag reachable from commit, or None."""
+        return self.get_latest_tag(
+            commit, glob="v*.*.*", pattern=self._SEMVER_TAG_PATTERN
+        )
+
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
@@ -832,13 +872,15 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--diff",
-            nargs="+",
+            nargs="*",
             metavar=("from_commit", "to_commit"),
-            action=_OneOrTwoArgsAction,
+            action=_ZeroToTwoArgsAction,
             help="Generate a document showing a diff between the given commits; "
-            "if `to_commit` is not given, it defaults to HEAD. Commits may "
-            "be git hashes, branch names, tags, or any other valid git "
-            "reference understood by `git rev-parse`",
+            "if `to_commit` is not given, it defaults to HEAD; if no commits "
+            "are given at all, uses the most recent semver release tag (vX.Y.Z) "
+            "as `from_commit` and HEAD as `to_commit`. Commits may be git "
+            "hashes, branch names, tags, or any other valid git reference "
+            "understood by `git rev-parse`",
         )
 
         return build_parser
