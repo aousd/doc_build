@@ -61,6 +61,14 @@ This paragraph will also remain at the end.
 
 ## Images
 
+SVG - Added
+
+![Added cross SVG](images/added_cross.svg)
+
+PNG - Added
+
+![Added cross PNG](images/added_cross.png)
+
 SVG - Unchanged
 
 ![Unchanged circle SVG](images/unchanged_circle.svg)

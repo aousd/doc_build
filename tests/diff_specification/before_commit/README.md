@@ -59,6 +59,10 @@ This paragraph will also remain at the end.
 
 ## Images
 
+SVG - Added
+
+PNG - Added
+
 SVG - Unchanged
 
 ![Unchanged circle SVG](images/unchanged_circle.svg)
