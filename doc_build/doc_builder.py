@@ -669,8 +669,11 @@ class DocBuilder:
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
 
-        # Note: we make sure image paths are absolute, so that they will still
-        # be valid from the diff output, which is in a different directory.
+        # Convert markdown to JSON AST. Image paths are kept relative here so
+        # that the LCS in ast_diff can match unchanged images between the two
+        # versions (absolute paths would differ because the two worktrees are
+        # in different directories). filter_diff_images resolves paths
+        # relative to their respective artifacts dirs after diffing.
         for (md_input, ast_output) in [(combined_from, ast_from), (combined_to, ast_to)]:
             pandoc(
                 [
@@ -681,13 +684,31 @@ class DocBuilder:
                     "json",
                     "-o",
                     ast_output,
-                    f"--metadata=PATH={md_input.parent}",
-                    f"--filter={self.get_filter("absolute_image_path")}",
                 ]
             )
 
         diff_ast_path = diff_dir / f"{diff_basename}.json"
         diff_ast_files(str(ast_from), str(ast_to), str(diff_ast_path))
+
+        # Copy images from
+        #       build/diff_from/artifacts
+        # and
+        #       build/diff_to/artifacts
+        # to
+        #       build/diff_to/artifacts
+        # ...so that bundle_images filter can find them.
+        # Note that because this is before filter_bundle_images, we have to copy
+        # the entire artifacts directory, not just the images subdirectory,
+        # because images may live at any relative path.
+        diff_artifacts = diff_dir / "artifacts"
+
+        diff_from_artifacts = combined_from.parent
+        shutil.copytree(diff_from_artifacts, diff_artifacts, dirs_exist_ok=True)
+
+        # Just overwrite existing images, because for now we assume that same image path = same image
+        diff_to_artifacts = combined_to.parent
+        shutil.copytree(diff_to_artifacts, diff_artifacts, dirs_exist_ok=True)
+
         # Not strictly necessary (Pandoc can take JSON as input), but converting
         # to markdown unifies the pipeline with the non-diff path and eases debugging.
         combined_diff_md = diff_dir / f"{diff_basename}.md"
