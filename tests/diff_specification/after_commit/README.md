@@ -61,6 +61,10 @@ This paragraph will also remain at the end.
 
 ## Images
 
+SVG - Removed
+
+PNG - Removed
+
 SVG - Added
 
 ![Added cross SVG](images/added_cross.svg)

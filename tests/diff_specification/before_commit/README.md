@@ -59,6 +59,14 @@ This paragraph will also remain at the end.
 
 ## Images
 
+SVG - Removed
+
+![Removed rect SVG](images/removed_rect.svg)
+
+PNG - Removed
+
+![Removed rect PNG](images/removed_rect.png)
+
 SVG - Added
 
 PNG - Added
