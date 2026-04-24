@@ -562,22 +562,6 @@ class DocBuilder:
 
         log(f"\tLint output: {linted}")
 
-    def iso_lint(self, args):
-        from doc_build.iso_clause_lint import check_spec, format_report
-
-        spec_root = self.get_specification_root()
-        log(f"Checking ISO clause structure in {spec_root} ...")
-        violations = check_spec(spec_root)
-        report = format_report(
-            violations,
-            context=args.context,
-            spec_root=spec_root,
-        )
-        if report:
-            log(report)
-        else:
-            log("No ISO clause structure violations found.")
-
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
@@ -873,7 +857,6 @@ class DocBuilder:
         self.make_index_parser(subparsers)
         self.make_spellcheck_parser(subparsers)
         self.make_style_parser(subparsers)
-        self.make_iso_lint_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -968,21 +951,6 @@ class DocBuilder:
         )
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
-
-    def make_iso_lint_parser(self, subparsers):
-        p = subparsers.add_parser(
-            "iso_lint",
-            help="Check specification source files for ISO clause structure violations",
-        )
-        p.add_argument(
-            "--context",
-            type=int,
-            default=5,
-            metavar="N",
-            help="Number of body lines to show per violation (default: 5)",
-        )
-        p.set_defaults(func=self.iso_lint)
-        return p
 
     def add_publish_copyright(self, combined):
         intro_copyright = self.get_publish_intro_legalese()
