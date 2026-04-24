@@ -307,31 +307,18 @@ def _latex_block_bg_wrap(diff_class: str, content: List[Dict]) -> List[Dict]:
     )
 
 
-def _latex_codeblock_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
-    """Wrap a CodeBlock in shadecolor colorlet commands for LaTeX diff output.
+def _latex_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
+    """Wrap a block in a tcolorbox with a matching shadecolor for LaTeX diff output.
 
-    Returns three blocks: a RawBlock setting shadecolor to the pale diff
-    background, the CodeBlock itself, and a RawBlock resetting shadecolor to
-    pandoc's default (lightgray).  This works because pandoc's Shaded
-    environment uses shadecolor internally; \\colorbox cannot wrap verbatim.
-    """
-    bg = _LATEX_BLOCK_DIFF_BG[diff_class]
-    set_cmd = f"\\colorlet{{shadecolor}}{{{bg}}}"
-    reset_cmd = f"\\colorlet{{shadecolor}}{{{_LATEX_SHADECOLOR_DEFAULT}}}"
-    return [
-        {"t": "RawBlock", "c": ["latex", set_cmd]},
-        block,
-        {"t": "RawBlock", "c": ["latex", reset_cmd]},
-    ]
+    Returns five blocks: open tcolorbox, set shadecolor, the block, reset
+    shadecolor, close tcolorbox.
 
-
-def _latex_tcolorbox_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
-    """Wrap a block in a tcolorbox environment for LaTeX diff output.
-
-    Returns three blocks: a RawBlock opening the tcolorbox, the block itself,
-    and a RawBlock closing it.  This is used for Para/Plain blocks that contain
-    display math (\\[...\\]), which cannot be nested inside \\colorbox/\\parbox.
-    tcolorbox supports display math content without restriction.
+    Both mechanisms are always applied:
+    - tcolorbox provides the visible background for all block types.
+    - shadecolor is set to match inside the box so that CodeBlock's inner
+      Shaded environment blends with the tcolorbox background instead of
+      producing a double background.  For non-CodeBlock types, shadecolor is
+      not consulted by those environments, so the set/reset is a no-op.
     """
     bg = _LATEX_BLOCK_DIFF_BG[diff_class]
     open_cmd = (
@@ -341,33 +328,11 @@ def _latex_tcolorbox_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
     )
     return [
         {"t": "RawBlock", "c": ["latex", open_cmd]},
+        {"t": "RawBlock", "c": ["latex", f"\\colorlet{{shadecolor}}{{{bg}}}"]},
         block,
+        {"t": "RawBlock", "c": ["latex", f"\\colorlet{{shadecolor}}{{{_LATEX_SHADECOLOR_DEFAULT}}}"]},
         {"t": "RawBlock", "c": ["latex", "\\end{tcolorbox}"]},
     ]
-
-
-def _latex_apply_block_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
-    """Apply a pale-background wrapper to a block for LaTeX diff output.
-
-    Routes to the appropriate mechanism based on block type:
-    - CodeBlock: shadecolor colorlet commands (\\colorbox cannot wrap verbatim)
-    - Para/Plain with display math: tcolorbox environment (\\colorbox/\\parbox
-      cannot contain display math)
-    - Para/Plain otherwise: inline \\colorbox/\\parbox wrapping
-    - Header: tcolorbox environment (\\colorbox/\\parbox cause layout issues in headings)
-    - Other block types: returned unchanged, as a single-item list
-    """
-    t = block.get("t")
-    if t == "CodeBlock":
-        return _latex_codeblock_bg_blocks(block, diff_class)
-    if t in ("Para", "Plain"):
-        inlines = block["c"]
-        if _has_display_math(inlines):
-            return _latex_tcolorbox_bg_blocks(block, diff_class)
-        return [{"t": t, "c": _latex_block_bg_wrap(diff_class, inlines)}]
-    if t == "Header":
-        return _latex_tcolorbox_bg_blocks(block, diff_class)
-    return [block]
 
 
 def render_span_inlines(inlines: List[Dict], format: str) -> List[Dict]:
@@ -600,18 +565,8 @@ def handle_whole_block(
         return result
     result = []
     for block in content:
-        if format == "latex" and block.get("t") == "CodeBlock":
-            result.extend(_latex_codeblock_bg_blocks(block, diff_class))
-        elif (
-            format == "latex"
-            and block.get("t") in ("Para", "Plain")
-            and _has_display_math(block["c"])
-        ):
-            rendered = render_whole_block(block, format, diff_class)
-            result.extend(_latex_tcolorbox_bg_blocks(rendered, diff_class))
-        elif format == "latex" and block.get("t") == "Header":
-            rendered = render_whole_block(block, format, diff_class)
-            result.extend(_latex_tcolorbox_bg_blocks(rendered, diff_class))
+        if format == "latex":
+            result.extend(_latex_bg_blocks(block, diff_class))
         else:
             result.append(render_whole_block(block, format, diff_class))
     return result
@@ -672,9 +627,7 @@ def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
             + _gfm_prefix_blocks(new_result, "insertion")
         )
     if format == "latex":
-        return _latex_apply_block_bg_blocks(
-            old_result, "deletion"
-        ) + _latex_apply_block_bg_blocks(new_result, "insertion")
+        return _latex_bg_blocks(old_result, "deletion") + _latex_bg_blocks(new_result, "insertion")
     return [old_result, new_result]
 
 
