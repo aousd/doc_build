@@ -256,3 +256,67 @@ This line block exists in both versions but has internal changes.
 | This line will be fully replaced with entirely different content.
 | This line will have just one word altered.
 | This final line will also be kept without any changes.
+
+## Deeply Nested Structures
+
+### Multi-Level Bulleted List
+
+A two-level list where only one sub-item changes.
+
+- Top-level item A: unchanged throughout both versions
+- Top-level item B: has sub-items that will change
+    - Sub-item B1: this sub-item is unchanged
+    - Sub-item B2: this sub-item will be altered
+    - Sub-item B3: this sub-item is also unchanged
+- Top-level item C: unchanged throughout both versions
+
+### Nested Block Quotes
+
+A blockquote that contains another blockquote; only the inner one changes.
+
+> This outer paragraph is unchanged.
+>
+> > This inner blockquote paragraph will be changed.
+>
+> This other outer paragraph is also unchanged.
+
+### List Inside Block Quote
+
+A blockquote that contains a bulleted list; only one list item changes.
+
+> This introductory paragraph is unchanged.
+>
+> - This list item is unchanged throughout both versions.
+> - This list item will be changed.
+> - This list item is also unchanged.
+
+### Block Quote Inside Nested List
+
+A blockquote three levels deep (list item > sub-item > blockquote); only the quote text changes.
+
+- This top-level item is unchanged.
+- This item has nested sub-items:
+    - This sub-item is unchanged.
+    - This sub-item has a blockquote that will change:
+
+        > The before version of this deeply nested blockquote.
+
+    - This sub-item is also unchanged.
+- This last top-level item is also unchanged.
+
+### Four-Level Mixed List
+
+A four-level mixed list (bullet > numbered > bullet > numbered) where only the deepest item changes.
+
+- Top-level bullet A: unchanged throughout both versions
+- Top-level bullet B: has a numbered sub-list
+    1. Numbered B1: unchanged
+    2. Numbered B2: has a bullet sub-sub-list
+        - Bullet B2a: unchanged
+        - Bullet B2b: has a numbered sub-sub-sub-list
+            1. Deepest item: unchanged
+            2. Deepest item: this one will be altered
+            3. Deepest item: also unchanged
+        - Bullet B2c: unchanged
+    3. Numbered B3: unchanged
+- Top-level bullet C: unchanged throughout both versions

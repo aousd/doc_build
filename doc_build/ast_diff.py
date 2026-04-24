@@ -128,6 +128,8 @@ def _pair_adjacent_changes(blocks: NodeList) -> NodeList:
             d, ins = deletions[j], insertions[j]
             if _is_list_node(d) and _is_list_node(ins) and d.get("t") == ins.get("t"):
                 result.append(diff_list_nodes(d, ins))
+            elif d.get("t") == "BlockQuote" and ins.get("t") == "BlockQuote":
+                result.append(diff_block_quote_nodes(d, ins))
             elif d.get("t") == "LineBlock" and ins.get("t") == "LineBlock":
                 result.extend(diff_line_block_nodes(d, ins))
             else:
@@ -164,11 +166,11 @@ def _build_list_with_items(node: PandocNode, items: List[List[PandocNode]]) -> P
 
 
 def _item_to_block(item: List[PandocNode]) -> PandocNode:
-    """Convert a list item's blocks to a single block for substitution wrapping.
+    """Convert a list item's blocks to a single block for diff wrapping.
 
-    Single-block items are returned as-is (the common case: Plain or Para),
-    which lets the render filter apply word-level diffs.  Multi-block items
-    are wrapped in an anonymous Div so they can be passed to make_substitution_div.
+    Used for unpaired deletions/insertions.  Single-block items are returned
+    as-is (the common case: Plain or Para).  Multi-block items are wrapped in
+    an anonymous Div so they can be passed to add_diff_meta as a unit.
     """
     if len(item) == 1:
         return item[0]
@@ -243,18 +245,27 @@ def diff_list_nodes(old_node: PandocNode, new_node: PandocNode) -> PandocNode:
 
         n_pairs = min(len(deletions), len(insertions))
         for j in range(n_pairs):
-            result_items.append(
-                [make_substitution_div(
-                    _item_to_block(deletions[j]),
-                    _item_to_block(insertions[j]),
-                )]
-            )
+            result_items.append(diff_block_lists(deletions[j], insertions[j]))
         for del_item in deletions[n_pairs:]:
             result_items.append([add_diff_meta(_item_to_block(del_item), "deletion")])
         for ins_item in insertions[n_pairs:]:
             result_items.append([add_diff_meta(_item_to_block(ins_item), "insertion")])
 
     return _build_list_with_items(old_node, result_items)
+
+
+def diff_block_quote_nodes(old_node: PandocNode, new_node: PandocNode) -> PandocNode:
+    """Diff two BlockQuote nodes at the block level.
+
+    Recursively diffs the content blocks of both BlockQuotes and returns a
+    single reconstructed BlockQuote whose contents carry per-block
+    insertion/deletion/substitution annotations.  Because the contents are
+    passed through diff_block_lists, any iterable types nested inside the
+    BlockQuote (lists, further BlockQuotes, LineBlocks) are themselves
+    recursively diffed.
+    """
+    diffed_blocks = diff_block_lists(old_node["c"], new_node["c"])
+    return {"t": "BlockQuote", "c": diffed_blocks}
 
 
 def _line_to_plain(line: List[PandocNode]) -> PandocNode:
