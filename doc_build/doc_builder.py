@@ -828,18 +828,6 @@ class DocBuilder:
 
         return self.get_scripts_root() / "defaults.yaml"
 
-    def get_iso_clause_map(self) -> Path:
-        """Return the ISO clause map YAML path.
-
-        Checks for a specification-specific file first
-        (``<spec_root>/iso_clause_map.yaml``), then falls back to the
-        builder-bundled default (``<scripts_root>/iso_clause_map.yaml``).
-        """
-        spec_specific = self.get_specification_root() / "iso_clause_map.yaml"
-        if spec_specific.exists():
-            return spec_specific
-        return self.get_scripts_root() / "iso_clause_map.yaml"
-
     # MARK: Argparser builds
 
     def process_argparser(self):
