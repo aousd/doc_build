@@ -21,6 +21,7 @@ from doc_build.diff_colors import (
     DIFF_WORD_DEL_RED,
     DIFF_WORD_INS_GREEN,
 )
+from doc_build.utils import git as git_utils
 
 try:
     import yaml
@@ -218,12 +219,7 @@ class DocBuilder:
         if repo_root is not None:
             self._repo_root = Path(repo_root)
         else:
-            self._repo_root = Path(
-                git.get_output(
-                    ["rev-parse", "--show-toplevel"],
-                    cwd=self._get_class_file().parent,
-                ).strip()
-            )
+            self._repo_root = git_utils.repo_root(cwd=self._get_class_file().parent)
 
     # MARK: Target Functions
     def build_docs(self, args):
@@ -233,7 +229,7 @@ class DocBuilder:
 
         if args.diff is not None:
             if len(args.diff) == 0:
-                latest_tag = self.get_latest_semver_tag()
+                latest_tag = git_utils.get_latest_semver_tag(self.get_repo_root())
                 if latest_tag is None:
                     raise ValueError(
                         "--diff given with no arguments, but no semver tags (vX.Y.Z) "
@@ -550,11 +546,10 @@ class DocBuilder:
 
     def get_file_base_name(self):
         tokens = ["aousd"]
-        results = git.get_output(["remote", "-v"]).splitlines()
-        for result in results:
-            result = result.split("/")[-1].split()[0].replace(".git", "")
+        remote_url = git_utils.get_remote_url(self.get_repo_root())
+        if remote_url is not None:
+            result = remote_url.split("/")[-1].replace(".git", "")
             tokens.extend([d for d in result.split("-") if d != "wg"])
-            break
         filename = "_".join(tokens)
         return filename
 
@@ -624,14 +619,10 @@ class DocBuilder:
         return self.preprocess_build(args)
 
     def _build_combined_for_ref(self, args, ref, worktree_path, output_subdir):
-        """Build combined.md for a given ref using a temporary worktree. Removes worktree in finally."""
+        """Build combined.md for a given ref using a temporary worktree. Removes worktree on exit."""
         worktree_path = Path(worktree_path)
         output_dir = Path(args.output) / output_subdir
-        try:
-            git(
-                ["worktree", "add", str(worktree_path), ref],
-                cwd=self.get_repo_root(),
-            )
+        with git_utils.temp_worktree(self.get_repo_root(), ref, worktree_path):
             builder = self.__class__(repo_root=worktree_path)
             ref_args = types.SimpleNamespace(
                 output=output_dir,
@@ -641,22 +632,14 @@ class DocBuilder:
             )
             output_dir.mkdir(parents=True, exist_ok=True)
             return builder._setup_and_preprocess(ref_args)
-        finally:
-            try:
-                git(
-                    ["worktree", "remove", str(worktree_path)],
-                    cwd=self.get_repo_root(),
-                )
-            except subprocess.CalledProcessError:
-                pass
 
     def generate_combined_diff(self, args, from_ref, to_ref):
         """Build combined diff markdown from two refs.
 
         Returns (before_md, after_md, diff_md, from_short, to_short).
         """
-        from_short = self.resolve_ref(from_ref, short=True)
-        to_short = self.resolve_ref(to_ref, short=True)
+        from_short = git_utils.commit_hash(from_ref, self.get_repo_root(), short=True)
+        to_short = git_utils.commit_hash(to_ref, self.get_repo_root(), short=True)
         diff_basename =DIFF_DIFF_FILENAME_TEMPLATE.format(
             base=COMBINED_SPEC_BASENAME,
             from_short=from_short,
@@ -716,13 +699,12 @@ class DocBuilder:
 
         log(f"\tLint output: {linted}")
 
-    def export_git_archive(self, args):
-        timestr = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
-        filepath = args.output / filename
-        log(f"Exporting archive to {filepath}...")
-        git(["archive", "--format", "zip", "--output", filepath, args.branch])
-        return filepath
+    def _export_git_archive_from_args(self, args):
+        return git_utils.export_git_archive(
+            base_filename="aousd_core_spec",
+            branch=args.branch,
+            output=args.output,
+        )
 
     def display_todos(self, args):
         log(f"Listing Todos under {args.output}...")
@@ -898,47 +880,10 @@ class DocBuilder:
 
     # MARK: Utility Functions
 
-    def resolve_ref(self, ref: str, short: bool = False) -> str:
-        """Resolve a git ref (branch, tag, hash) to a commit hash in the repo."""
-        args = ["rev-parse", "--short", ref] if short else ["rev-parse", ref]
-        return git.get_output(args, cwd=self.get_repo_root()).strip()
-
-    _SEMVER_TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
-
-    def get_latest_tag(
-        self,
-        commit: str = "HEAD",
-        glob: Optional[str] = None,
-        pattern: Optional[re.Pattern] = None,
-    ) -> Optional[str]:
-        """Return the most recent tag reachable from commit, or None.
-
-        glob:    shell glob passed to `git tag --list` to pre-filter tags
-        pattern: compiled regexp used to filter results after git returns them
-        """
-        cmd = ["tag", "--list", "--sort=-version:refname", f"--merged={commit}"]
-        if glob is not None:
-            cmd.append(glob)
-        tag_output = git.get_output(cmd, cwd=self.get_repo_root())
-        return next(
-            (
-                line.strip()
-                for line in tag_output.splitlines()
-                if pattern is None or pattern.match(line.strip())
-            ),
-            None,
-        )
-
-    def get_latest_semver_tag(self, commit: str = "HEAD") -> Optional[str]:
-        """Return the most recent vX.Y.Z tag reachable from commit, or None."""
-        return self.get_latest_tag(
-            commit, glob="v*.*.*", pattern=self._SEMVER_TAG_PATTERN
-        )
-
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = self.resolve_ref("HEAD", short=True)
+            commit = git_utils.commit_hash("HEAD", self.get_repo_root(), short=True)
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
@@ -1064,7 +1009,7 @@ class DocBuilder:
     def make_export_parser(self, subparsers):
         export_parser = subparsers.add_parser("export", help="Export the git archive")
         export_parser.add_argument("-b", "--branch", default="main")
-        export_parser.set_defaults(func=self.export_git_archive)
+        export_parser.set_defaults(func=self._export_git_archive_from_args)
         return export_parser
 
     def make_todo_parser(self, subparsers):
