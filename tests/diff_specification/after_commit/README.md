@@ -55,6 +55,8 @@ In the range $0 \le x \le 2$, the function $f(x) = \sqrt{x}$ is monotonically in
 
 This paragraph will remain.
 
+Another anchor paragraph that stays unchanged.
+
 This is a brand new paragraph inserted into the document.
 
 This paragraph will also remain at the end.

@@ -55,6 +55,8 @@ This paragraph will remain.
 
 This entire paragraph will be deleted from the document.
 
+Another anchor paragraph that stays unchanged.
+
 This paragraph will also remain at the end.
 
 ## Images
