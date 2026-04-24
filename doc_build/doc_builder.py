@@ -681,7 +681,7 @@ class DocBuilder:
                     "json",
                     "-o",
                     ast_output,
-                    f"--metadata=PATH={combined_from.parent}",
+                    f"--metadata=PATH={md_input.parent}",
                     f"--filter={self.get_filter("absolute_image_path")}",
                 ]
             )
