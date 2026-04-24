@@ -99,6 +99,8 @@ _LATEX_MATH_TEXT_CMD = {
 }
 # pandoc's default shadecolor for Shaded/verbatim environments
 _LATEX_SHADECOLOR_DEFAULT = "lightgray"
+# notebg default color name (defined via \colorlet{notebgdefault}{notebg} in after-header-includes.latex)
+_LATEX_NOTEBG_DEFAULT = "notebgdefault"
 
 
 ###############################################################################
@@ -308,30 +310,40 @@ def _latex_block_bg_wrap(diff_class: str, content: List[Dict]) -> List[Dict]:
 
 
 def _latex_bg_blocks(block: Dict, diff_class: str) -> List[Dict]:
-    """Wrap a block in a tcolorbox with a matching shadecolor for LaTeX diff output.
+    """Apply a diff background to a block for LaTeX output.
 
-    Returns five blocks: open tcolorbox, set shadecolor, the block, reset
-    shadecolor, close tcolorbox.
+    Wraps the block in a tcolorbox and sets shadecolor and notebg to match.
+    All three are applied unconditionally so that background-bearing children
+    at any nesting depth inherit the diff color:
 
-    Both mechanisms are always applied:
-    - tcolorbox provides the visible background for all block types.
-    - shadecolor is set to match inside the box so that CodeBlock's inner
-      Shaded environment blends with the tcolorbox background instead of
-      producing a double background.  For non-CodeBlock types, shadecolor is
-      not consulted by those environments, so the set/reset is a no-op.
+    - shadecolor: read by CodeBlock's Shaded/snugshade environment.
+    - notebg: read by BlockQuote's tcolorbox (colback=notebg).  The outer
+      tcolorbox cannot override an inner tcolorbox's colback, so setting notebg
+      is the only way to propagate the diff color into a BlockQuote.
+
+    Setting all three handles nested combinations correctly: a CodeBlock inside
+    a BlockQuote, a BulletList inside a BlockQuote, a CodeBlock inside a
+    BulletList inside a BlockQuote, etc.  The outer tcolorbox adds a thin layer
+    of extra padding around BlockQuote's own box (boxsep=0pt, left=2pt,
+    right=2pt, top=1pt, bottom=1pt), which is an acceptable trade-off.
     """
     bg = _LATEX_BLOCK_DIFF_BG[diff_class]
     open_cmd = (
+        f"\\colorlet{{shadecolor}}{{{bg}}}"
+        f"\\colorlet{{notebg}}{{{bg}}}"
         f"\\begin{{tcolorbox}}[colback={bg},colframe={bg},"
         "boxrule=0pt,boxsep=0pt,left=2pt,right=2pt,top=1pt,bottom=1pt,"
         "enhanced,breakable]"
     )
+    close_cmd = (
+        f"\\end{{tcolorbox}}"
+        f"\\colorlet{{shadecolor}}{{{_LATEX_SHADECOLOR_DEFAULT}}}"
+        f"\\colorlet{{notebg}}{{{_LATEX_NOTEBG_DEFAULT}}}"
+    )
     return [
         {"t": "RawBlock", "c": ["latex", open_cmd]},
-        {"t": "RawBlock", "c": ["latex", f"\\colorlet{{shadecolor}}{{{bg}}}"]},
         block,
-        {"t": "RawBlock", "c": ["latex", f"\\colorlet{{shadecolor}}{{{_LATEX_SHADECOLOR_DEFAULT}}}"]},
-        {"t": "RawBlock", "c": ["latex", "\\end{tcolorbox}"]},
+        {"t": "RawBlock", "c": ["latex", close_cmd]},
     ]
 
 

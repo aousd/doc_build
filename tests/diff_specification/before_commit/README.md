@@ -151,7 +151,78 @@ This section exists in both versions but the list has several types of changes.
 - This item is unchanged; it separates the deletion above from the replacements below
 - This item will be fully replaced with entirely different content
 - This item will have just one word altered
+
+- This item contains a blockquote that will be modified:
+
+    > This blockquote content comes from the before version.
+
+- This item contains a code block that will be modified:
+
+    ```python
+    result = old_function()
+    ```
+
+- This item contains a blockquote with a nested code block that will be modified:
+
+    > Text before the nested code block.
+    >
+    > ```python
+    > nested = old_nested()
+    > ```
+    >
+    > Text after the nested code block.
+
 - This item will also be kept in the list without any changes
+
+## Block Quotes
+
+### Unchanged
+
+This blockquote is identical in both versions.
+
+> This blockquote paragraph is unchanged throughout both versions.
+>
+> This second paragraph is also identical in before and after.
+
+### Removed
+
+This entire section and its blockquote are present only in the before version.
+
+> This blockquote will be completely removed.
+>
+> None of these paragraphs survive to the after version.
+
+### Bit That Stays the Same
+
+...just so that the removed and added sub-sections are not paired as a substitution.
+
+### Changed Block Quote With Code Block
+
+This blockquote contains a nested code block and will be modified.
+
+> Some introductory text before the code.
+>
+> ```python
+> result = old_function()
+> ```
+>
+> Some concluding text after the code.
+
+### Mixed Changes
+
+This blockquote exists in both versions but has internal changes.
+
+> This paragraph will stay the same throughout both versions.
+>
+> This paragraph will be completely removed from the blockquote.
+>
+> This paragraph is unchanged; it separates the deletion above from the replacements below.
+>
+> This paragraph will be fully replaced with entirely different content.
+>
+> This paragraph will have just one word altered.
+>
+> This final paragraph will also be kept without any changes.
 
 ## Line Blocks
 
