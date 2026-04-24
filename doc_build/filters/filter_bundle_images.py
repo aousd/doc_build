@@ -22,21 +22,10 @@ import shutil
 from pathlib import Path
 
 from pandocfilters import toJSONFilter, Image
-from shared_filter_utils import get_metadata_str
+from shared_filter_utils import get_image_rel, get_metadata_str
 
 # Maps rel_key -> str(src_abs) for collision detection within a single pandoc run.
 _seen: dict[str, str] = {}
-
-
-def _get_image_rel(src_abs: Path, images_root: Path) -> Path:
-    """Compute destination relative path under images/, stripping 'images' components."""
-    rel = src_abs.relative_to(images_root, walk_up=True)
-    parts = [p for p in rel.parts if p not in ("images", "..")]
-    if not parts:
-        raise ValueError(
-            f"Image {src_abs} reduces to an empty path after removing 'images' and '..' components"
-        )
-    return Path(*parts)
 
 
 def bundle_image(key, value, _format, metadata):
@@ -53,7 +42,7 @@ def bundle_image(key, value, _format, metadata):
         # Relative paths are relative to the images root (pandoc input file location)
         src = images_root / src
 
-    image_rel = _get_image_rel(src, images_root)
+    image_rel = get_image_rel(src, images_root)
 
     dest = output_dir / "images" / image_rel
     rel_key = image_rel.as_posix()
