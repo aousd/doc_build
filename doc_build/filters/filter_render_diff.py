@@ -73,6 +73,13 @@ _GFM_EMOJI = {
 # GFM-compatible rendering (emoji block prefixes, <u>/~~ word-level markup).
 _GFM_FORMATS = frozenset({"gfm"})
 
+# LaTeX color names used with \textcolor{color}{content} inside math expressions.
+# GitHub's MathJax renderer honors these standard color names.
+_GFM_MATH_COLOR = {
+    "insertion": "green",
+    "deletion": "red",
+}
+
 ###############################################################################
 # LaTeX diff styling
 ###############################################################################
@@ -123,6 +130,28 @@ def Header(level: int, attr: List, inlines: List[Dict]) -> Dict:
 def _gfm_prefix_inlines(inlines: List[Dict], diff_class: str) -> List[Dict]:
     """Prepend a colored emoji marker and a space to a list of inline elements."""
     return [Str(_GFM_EMOJI[diff_class]), Space()] + inlines
+
+
+def _gfm_color_block_math(block: Dict, diff_class: str) -> Dict:
+    """Apply \\textcolor math styling to all math content in a block for GFM.
+
+    For Para/Plain/Header, colors all Math nodes in the inline list.
+    For math CodeBlocks, wraps the content string with \\textcolor{}{}.
+    Other block types are returned unchanged.
+    """
+    t = block.get("t")
+    c = block.get("c")
+    if t in ("Para", "Plain"):
+        return {"t": t, "c": _gfm_color_math_inlines(c, diff_class)}
+    if t == "Header":
+        level, attr, inlines = c
+        return Header(level, attr, _gfm_color_math_inlines(inlines, diff_class))
+    if t == "CodeBlock":
+        attr, code_str = c
+        if "math" in attr[1]:
+            color = _GFM_MATH_COLOR[diff_class]
+            return {"t": "CodeBlock", "c": [attr, f"\\textcolor{{{color}}}{{{code_str}}}"]}
+    return block
 
 
 def _gfm_prefix_blocks(block: Dict, diff_class: str) -> List[Dict]:
@@ -372,12 +401,62 @@ def render_span_inlines(inlines: List[Dict], format: str) -> List[Dict]:
     return result
 
 
+def _gfm_color_math_node(node: Dict, diff_class: str) -> Dict:
+    """Rewrite a Math node's LaTeX string with \\textcolor{color}{...}."""
+    math_type, latex_str = node["c"]
+    color = _GFM_MATH_COLOR[diff_class]
+    return {"t": "Math", "c": [math_type, f"\\textcolor{{{color}}}{{{latex_str}}}"]}
+
+
+def _gfm_color_math_inlines(inlines: List[Dict], diff_class: str) -> List[Dict]:
+    """Apply \\textcolor color styling to all Math nodes in an inline list."""
+    return [
+        _gfm_color_math_node(node, diff_class) if node.get("t") == "Math" else node
+        for node in inlines
+    ]
+
+
+def _gfm_wrap_math_content(content: List[Dict], diff_class: str) -> List[Dict]:
+    """Handle GFM span content that contains math nodes.
+
+    Processes content node-by-node:
+    - Math nodes (inline or display): rewritten with \\textcolor{green/red}{...}
+      so GitHub's MathJax renders the color inside the math expression.
+    - All other nodes: collected into runs and wrapped with <u>...</u> or
+      ~~...~~ as usual.
+    """
+    is_insertion = diff_class == "insertion"
+    open_marker = _raw_inline("html", "<u>") if is_insertion else _raw_inline("markdown", "~~")
+    close_marker = _raw_inline("html", "</u>") if is_insertion else _raw_inline("markdown", "~~")
+
+    result: List[Dict] = []
+    text_run: List[Dict] = []
+
+    def flush_text_run():
+        if text_run:
+            result.extend([open_marker] + text_run + [close_marker])
+            text_run.clear()
+
+    for node in content:
+        if node.get("t") == "Math":
+            flush_text_run()
+            result.append(_gfm_color_math_node(node, diff_class))
+        else:
+            text_run.append(node)
+
+    flush_text_run()
+    return result
+
+
 def _render_span(content: List[Dict], format: str, diff_class: str) -> List[Dict]:
     """Emit format-specific inline markup wrapping content for one diff class.
 
     For HTML, word-level spans (inside substitutions) get the stronger shade
     background plus underline/strikethrough.
-    For GFM markdown, <u>...</u> marks insertions and ~~...~~ marks deletions.
+    For GFM markdown, <u>...</u> marks insertions and ~~...~~ marks deletions
+    for text content.  When content contains math, text runs are wrapped as
+    above and Math nodes are rewritten with \\textcolor{green/red}{} so
+    GitHub's MathJax renders color inside the math expression.
     For LaTeX, word-level spans get a colored box plus ulem text decoration
     (or textcolor-only fallback when content contains math).
     """
@@ -396,10 +475,7 @@ def _render_span(content: List[Dict], format: str, diff_class: str) -> List[Dict
         )
     elif format in _GFM_FORMATS:
         if _has_math(content):
-            # Math nodes expand to multi-line code fences in GFM output, which
-            # breaks inline markup.  Skip word-level markup; the block-level emoji
-            # prefix is sufficient to indicate the diff.
-            return list(content)
+            return _gfm_wrap_math_content(content, diff_class)
         if diff_class == "insertion":
             return (
                 [_raw_inline("html", "<u>")]
@@ -573,7 +649,7 @@ def handle_whole_block(
     if format in _GFM_FORMATS:
         result = []
         for block in content:
-            result.extend(_gfm_prefix_blocks(block, diff_class))
+            result.extend(_gfm_prefix_blocks(_gfm_color_block_math(block, diff_class), diff_class))
         return result
     result = []
     for block in content:
@@ -623,10 +699,12 @@ def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
 
         old_result = _build_inline_block(old_block, old_out)
         new_result = _build_inline_block(new_block, new_out)
+        gfm_color_math = False
     else:
         # Non-inline blocks: fall back to whole-block styling
         old_result = render_whole_block(old_block, format, "deletion")
         new_result = render_whole_block(new_block, format, "insertion")
+        gfm_color_math = True
 
     if format == "html":
         return [
@@ -634,6 +712,9 @@ def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
             _make_styled_div(_HTML_BLOCK_DIFF_BG["insertion"], [new_result]),
         ]
     if format in _GFM_FORMATS:
+        if gfm_color_math:
+            old_result = _gfm_color_block_math(old_result, "deletion")
+            new_result = _gfm_color_block_math(new_result, "insertion")
         return (
             _gfm_prefix_blocks(old_result, "deletion")
             + _gfm_prefix_blocks(new_result, "insertion")
