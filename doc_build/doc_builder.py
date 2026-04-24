@@ -26,9 +26,6 @@ try:
 except ImportError:
     sys.exit("Please install the PyYAML package: pip install PyYAML.")
 
-if sys.version_info < (3, 10):
-    sys.exit("Python 3.10 or greater is required.")
-
 
 # The output format for the published aousd_core_spec.md file.  We want it to be
 # in a widely / known format, that still has a decent set of extensions to
@@ -178,7 +175,7 @@ class DocBuilder:
                 output_dir=args.output / "diff",
             )
             # If everything succeeds, we should have an output tree like this
-            # (not complete -other intermediate files will exist too...)
+            # (not complete - other intermediate files will exist too...)
             # ├── build
             # │   ├── diff
             # │   │   ├── aousd_doc_build.diff_<fromhash>_to_<tohash>.html,
@@ -230,8 +227,12 @@ class DocBuilder:
         fontpath = Path(os.path.relpath(front_page_dir, artifacts_dir)).as_posix() + "/"
         dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
+        all_filters = self.get_doc_build_filters()
+        if not getattr(args, 'iso_xrefs', False):
+            iso_filter = self.get_filter("iso_xrefs")
+            all_filters = [f for f in all_filters if f != iso_filter]
         doc_build_filters = []
-        for doc_filter in self.get_doc_build_filters():
+        for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
 
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it.
@@ -282,8 +283,6 @@ class DocBuilder:
                 "citecolor=OliveGreen",
                 "-V",
                 "urlcolor=blue",
-                "-M",
-                f"ISO_CLAUSE_MAP={self.get_scripts_root() / 'iso_clause_map.yaml'}",
                 "--toc=true",
                 "--toc-depth",
                 "2",
@@ -297,6 +296,9 @@ class DocBuilder:
             if not args.no_draft:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
+
+            if getattr(args, 'iso_xrefs', False):
+                shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
 
             pdf = None
             docx = None
@@ -811,7 +813,7 @@ class DocBuilder:
 
     def write_yaml(self, output: Path, data: dict):
         if isinstance(output, str):
-            output = Path(str)
+            output = Path(output)
         with output.open("w") as f:
             yaml.dump(data, f)
 
@@ -831,6 +833,18 @@ class DocBuilder:
             return this_spec
 
         return self.get_scripts_root() / "defaults.yaml"
+
+    def get_iso_clause_map(self) -> Path:
+        """Return the ISO clause map YAML path.
+
+        Checks for a specification-specific file first
+        (``<spec_root>/iso_clause_map.yaml``), then falls back to the
+        builder-bundled default (``<scripts_root>/iso_clause_map.yaml``).
+        """
+        spec_specific = self.get_specification_root() / "iso_clause_map.yaml"
+        if spec_specific.exists():
+            return spec_specific
+        return self.get_scripts_root() / "iso_clause_map.yaml"
 
     # MARK: Argparser builds
 
@@ -889,6 +903,13 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
+        )
+        build_parser.add_argument(
+            "--iso-xrefs",
+            help="Apply ISO cross-reference formatting (clause numbers, URL display, "
+                 "citation expansion). Uses a specification-specific iso_clause_map.yaml "
+                 "if present, otherwise falls back to the builder default.",
+            action="store_true",
         )
         build_parser.add_argument(
             "--diff",
