@@ -21,7 +21,22 @@ doc_build = { path = ".", editable = true }
 [tool.pixi.tasks]
 build = "python tests/build_scripts/build_docs.py build"
 build-diff = "python tests/build_scripts/build_diff.py"
-test = { depends-on = ["build", "build-diff"] }
+
+[tool.pixi.tasks.test]
+    # Convenience command to run both build and build-diff
+    #   ie, `pixi run test` = `pixi run build ; pixi run build-diff`
+    # Note that `test` / depends-on tasks cannot be passed extra arguments...
+    # (see note below)
+    depends-on = ["build", "build-diff"]
+
+    # NOTE: this cmd is just to cause an error message to print if you try to pass args
+    # to `pixi run test`
+    # The pixi implementation of `depends-on`,does not forward extra command-line args,
+    # or error if they are present - so doing, ie:
+    #     pixi run test --keep-pdf-latexn
+    # ...will seem to work, but actually the flag is just silently discarded.
+    # This command causes the test task to fail in this scenario
+    cmd = "python -c 'import sys; sys.argv[1:] and sys.exit(\"test does not accept extra args; pass them directly to build or build-diff\")'"
 
 [tool.pixi.workspace]
 channels = [

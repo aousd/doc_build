@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Re-run tectonic on the captured .tex to regenerate the PDF."""
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+SOURCE_DATE_EPOCH = {source_date_epoch!r}
+TECTONIC = {tectonic_path!r}
+TEX_FILE = {tex_file_name!r}
+PDF_NAME = {pdf_name!r}
+
+env = os.environ.copy()
+env["SOURCE_DATE_EPOCH"] = SOURCE_DATE_EPOCH
+# Font paths in the .tex are relative to artifacts_dir;
+# run tectonic from there so they resolve correctly.
+ARTIFACTS_DIR = SCRIPT_DIR / "artifacts"
+ARTIFACTS_DIR.mkdir(exist_ok=True, parents=True)
+with open(SCRIPT_DIR / TEX_FILE, "rb") as tex_in:
+    result = subprocess.run(
+        [TECTONIC, "-", "--outdir", str(SCRIPT_DIR)],
+        stdin=tex_in,
+        cwd=ARTIFACTS_DIR,
+        env=env,
+    )
+if result.returncode != 0:
+    sys.exit(result.returncode)
+(SCRIPT_DIR / "texput.pdf").rename(SCRIPT_DIR / PDF_NAME)
