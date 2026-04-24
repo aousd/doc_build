@@ -128,6 +128,8 @@ def _pair_adjacent_changes(blocks: NodeList) -> NodeList:
             d, ins = deletions[j], insertions[j]
             if _is_list_node(d) and _is_list_node(ins) and d.get("t") == ins.get("t"):
                 result.append(diff_list_nodes(d, ins))
+            elif d.get("t") == "LineBlock" and ins.get("t") == "LineBlock":
+                result.extend(diff_line_block_nodes(d, ins))
             else:
                 result.append(make_substitution_div(d, ins))
         for node in deletions[n_pairs:]:
@@ -253,6 +255,27 @@ def diff_list_nodes(old_node: PandocNode, new_node: PandocNode) -> PandocNode:
             result_items.append([add_diff_meta(_item_to_block(ins_item), "insertion")])
 
     return _build_list_with_items(old_node, result_items)
+
+
+def _line_to_plain(line: List[PandocNode]) -> PandocNode:
+    """Convert a LineBlock line (list of inlines) to a Plain block."""
+    return {"t": "Plain", "c": line}
+
+
+def diff_line_block_nodes(old_node: PandocNode, new_node: PandocNode) -> NodeList:
+    """Diff two LineBlock nodes at the line level.
+
+    Converts each line to a Plain block and delegates to diff_block_lists,
+    which handles LCS matching, pairing, and substitution Div creation.
+    Changed line pairs become substitution Divs wrapping Plain blocks, so
+    the render filter applies word-level diffs to each changed line.
+
+    Returns a flat NodeList rather than a single node; callers must use
+    extend() rather than append() when inserting into a block list.
+    """
+    old_blocks = [_line_to_plain(line) for line in old_node["c"]]
+    new_blocks = [_line_to_plain(line) for line in new_node["c"]]
+    return diff_block_lists(old_blocks, new_blocks)
 
 
 def diff_block_lists(before_blocks: NodeList, after_blocks: NodeList) -> NodeList:

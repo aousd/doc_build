@@ -154,3 +154,35 @@ This section exists in both versions but the list has several types of changes.
 - This item will have just one word modified
 - This item will also be kept in the list without any changes
 - This brand new item was added to the end of the list
+
+## Line Blocks
+
+### Unchanged
+
+This line block is identical in both versions.
+
+| This line is unchanged throughout both versions.
+| This line is also identical in before and after.
+| This final line remains the same as well.
+
+### Bit That Stays the Same
+
+...just so that the removed and added sub-sections are not paired as a substitution.
+
+### Added
+
+This entire section and its line block appear only in the after version.
+
+| This line block did not exist in the previous version.
+| All of these lines are brand new additions.
+| The entire section was inserted during this revision.
+
+### Mixed Changes
+
+This line block exists in both versions but has internal changes.
+
+| This line will stay the same throughout both versions.
+| This line is unchanged; it separates the deletion above from the replacements below.
+| This line replaces the old fourth entry with completely new text.
+| This line will have just one word modified.
+| This final line will also be kept without any changes.
