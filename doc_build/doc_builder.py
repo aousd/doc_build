@@ -229,9 +229,6 @@ class DocBuilder:
         dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
         all_filters = self.get_doc_build_filters()
-        if not getattr(args, 'iso_xrefs', False):
-            iso_filter = self.get_filter("iso_xrefs")
-            all_filters = [f for f in all_filters if f != iso_filter]
         doc_build_filters = []
         for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
@@ -297,9 +294,6 @@ class DocBuilder:
             if not args.no_draft:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
-
-            if getattr(args, 'iso_xrefs', False):
-                shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
 
             pdf = None
             docx = None
@@ -388,7 +382,6 @@ class DocBuilder:
             self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
-            self.get_filter("iso_xrefs"),
             self.get_filter("resolve_sections"),
             self.get_filter("sections_new_page"),
             self.get_filter("smaller_listings"),
@@ -904,13 +897,6 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
-        )
-        build_parser.add_argument(
-            "--iso-xrefs",
-            help="Apply ISO cross-reference formatting (clause numbers, URL display, "
-                 "citation expansion). Uses a specification-specific iso_clause_map.yaml "
-                 "if present, otherwise falls back to the builder default.",
-            action="store_true",
         )
         build_parser.add_argument(
             "--diff",
