@@ -15,9 +15,7 @@ import hashlib
 from pathlib import Path
 
 from pandocfilters import toJSONFilter, Image
-from shared_filter_utils import get_metadata_str
-
-HASH_ATTR_KEY = "data-image-hash"
+from shared_filter_utils import HASH_ATTR_KEY, get_metadata_str
 
 
 def _sha256(path: Path) -> str:
