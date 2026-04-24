@@ -12,6 +12,7 @@ from diff_match_patch import diff_match_patch
 from pandocfilters import Strikeout, toJSONFilter
 
 from doc_build.diff_colors import (
+    DIFF_COMMENT_GRAY,
     DIFF_SECTION_DEL_PALE_RED,
     DIFF_SECTION_INS_PALE_GREEN,
     DIFF_WORD_DEL_RED,
@@ -58,6 +59,36 @@ _HTML_TEXT_DECORATION = {
     "insertion": "underline",
     "deletion": "line-through",
 }
+
+###############################################################################
+# Comment/label styling (gray italic small)
+###############################################################################
+
+_COMMENT_GRAY_HTML = f"#{DIFF_COMMENT_GRAY}"
+_COMMENT_GRAY_LATEX = DIFF_COMMENT_GRAY
+
+
+def _make_styled_comment_block(text: str, format: str) -> Dict:
+    """Return a block rendering text as a small gray italic diff comment.
+
+    HTML and LaTeX: full styling via per-format raw blocks.
+    GFM and other formats: italic only, applied at AST level via Emph.
+    """
+    if format == "html":
+        html = (
+            f'<p style="color: {_COMMENT_GRAY_HTML}; font-size: smaller;'
+            f' font-style: italic;">{text}</p>'
+        )
+        return {"t": "RawBlock", "c": ["html", html]}
+    elif format == "latex":
+        latex = (
+            f"\\noindent{{\\small\\textcolor[HTML]{{{_COMMENT_GRAY_LATEX}}}"
+            f"{{\\textit{{{text}}}}}}}"
+        )
+        return {"t": "RawBlock", "c": ["latex", latex]}
+    else:
+        # GFM and other formats: italics at AST level; gray/size not supported
+        return {"t": "Para", "c": [{"t": "Emph", "c": [Str(text)]}]}
 
 ###############################################################################
 # GFM diff styling
@@ -728,18 +759,63 @@ def handle_substitution(content: List[Dict], format: str) -> List[Dict]:
 # Top-level filter function
 ###############################################################################
 
+_DIFF_TYPE_LABEL = {
+    "insertion": "Add",
+    "deletion": "Remove",
+    "substitution": "Substitution",
+}
+
+
+def _get_meta_str(meta: Dict, key: str) -> Optional[str]:
+    """Extract a plain string from pandoc metadata (MetaString or MetaInlines)."""
+    entry = meta.get(key)
+    if entry is None:
+        return None
+    t = entry.get("t")
+    if t == "MetaString":
+        return entry["c"]
+    if t == "MetaInlines":
+        parts = []
+        for node in entry["c"]:
+            nt = node.get("t")
+            if nt == "Str":
+                parts.append(node["c"])
+            elif nt == "Space":
+                parts.append(" ")
+        return "".join(parts)
+    return None
+
+
+def _make_diff_label_para(from_pretty: str, to_pretty: str, diff_type: str, format: str) -> Dict:
+    label = f"Diff - from {from_pretty} to {to_pretty} - {_DIFF_TYPE_LABEL[diff_type]}"
+    return _make_styled_comment_block(label, format)
+
 
 def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List[Dict]]:
     if key != "Div":
         return None
     attrs, content = value
     classes = attrs[1]
+
+    from_pretty = _get_meta_str(meta, "diff-from-pretty")
+    to_pretty = _get_meta_str(meta, "diff-to-pretty")
+    has_label = from_pretty is not None and to_pretty is not None
+
     if "substitution" in classes:
-        return handle_substitution(content, format)
+        result = handle_substitution(content, format)
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "substitution", format)] + result
+        return result
     elif "insertion" in classes:
-        return handle_whole_block(content, format, "insertion")
+        result = handle_whole_block(content, format, "insertion")
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "insertion", format)] + result
+        return result
     elif "deletion" in classes:
-        return handle_whole_block(content, format, "deletion")
+        result = handle_whole_block(content, format, "deletion")
+        if has_label:
+            result = [_make_diff_label_para(from_pretty, to_pretty, "deletion", format)] + result
+        return result
     return None
 
 

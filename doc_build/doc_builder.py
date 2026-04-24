@@ -245,10 +245,13 @@ class DocBuilder:
         args.output.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
+            from_ref, to_ref = args.diff[0], args.diff[1]
             before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
-                args, args.diff[0], args.diff[1]
+                args, from_ref, to_ref
             )
             base = self.get_file_base_name()
+            from_pretty = git_utils.get_ref_pretty_str(from_ref, self.get_repo_root())
+            to_pretty = git_utils.get_ref_pretty_str(to_ref, self.get_repo_root())
 
             # For an apples to apples comparison, we do a "final" render of the
             # full 3x3 matrix of:
@@ -274,6 +277,8 @@ class DocBuilder:
                 skip_docx=True,
                 is_diff=True,
                 output_dir=args.output / "diff",
+                from_pretty=from_pretty,
+                to_pretty=to_pretty,
             )
             # If everything succeeds, we should have an output tree like this
             # (not complete -other intermediate files will exist too...)
@@ -309,6 +314,8 @@ class DocBuilder:
         skip_docx=False,
         is_diff=False,
         output_dir: Path | None = None,
+        from_pretty: Optional[str] = None,
+        to_pretty: Optional[str] = None,
     ):
         """Render HTML, PDF, Markdown, and optionally DOCX from a combined markdown file."""
         if output_dir is None:
@@ -392,6 +399,12 @@ class DocBuilder:
             if not args.no_draft:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
+
+            if from_pretty is not None and to_pretty is not None:
+                shared_command.extend([
+                    "-M", f"diff-from-pretty={from_pretty}",
+                    "-M", f"diff-to-pretty={to_pretty}",
+                ])
 
             pdf = None
             docx = None
