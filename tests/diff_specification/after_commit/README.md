@@ -61,10 +61,10 @@ This paragraph will also remain at the end.
 
 ## Images
 
-An SVG image that does not change:
+SVG - Unchanged
 
-![Blue circle](images/unchanged.svg)
+![Unchanged circle SVG](images/unchanged_circle.svg)
 
-A PNG image that does not change:
+PNG - Unchanged
 
-![Blue box](images/unchanged.png)
+![Unchanged circle PNG](images/unchanged_circle.png)
