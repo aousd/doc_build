@@ -24,8 +24,18 @@ from doc_build.diff_colors import (
 try:
     import yaml
 except ImportError:
-    sys.exit("Please install the PyYAML package: pip install PyYAML.")
+    sys.exit("Please install the PyYAML package: pip install PyYAML")
 
+
+# Allow Python3.10
+@contextlib.contextmanager
+def contextlib_chdir(path):
+    old_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(old_dir)
 
 # The output format for the published aousd_core_spec.md file.  We want it to be
 # in a widely / known format, that still has a decent set of extensions to
@@ -239,7 +249,7 @@ class DocBuilder:
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it.
         # contextlib.chdir restores the previous cwd on exit (even on exception), so on Windows the
         # process doesn't hold a handle to the directory and temp-dir cleanup succeeds.
-        with contextlib.chdir(artifacts_dir):
+        with contextlib_chdir(artifacts_dir):
             shared_command = [
                 "--defaults",
                 spec,

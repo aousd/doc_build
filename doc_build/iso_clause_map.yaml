@@ -17,3 +17,4 @@
 foreword:     null   # front matter, not a numbered clause
 introduction: null   # front matter, not a numbered clause
 closing:      null   # back matter; change to {annex: "A"} to make it Annex A
+copyright_license_agreement_for_aousd_draft_deliverables_for_internal_evaluation: null

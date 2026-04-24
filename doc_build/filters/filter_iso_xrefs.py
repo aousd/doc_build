@@ -27,10 +27,15 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    sys.exit("Please install the PyYAML package: pip install PyYAML")
+
 from pandocfilters import Link, Space, Str, stringify, toJSONFilter
 
 from shared_filter_utils import get_metadata_str
@@ -154,8 +159,29 @@ def _build_maps(yaml_path, artifacts_root):
             )
             if k is not None
         ]
+        # print('[filter_iso_xrefs] section_order from README.md:', file=sys.stderr)
+        # for i, key in enumerate(section_order):
+        #     print(f'  [{i:2d}] {key}', file=sys.stderr)
     except (FileNotFoundError, subprocess.CalledProcessError):
         return {}, {}, {}, clause_map
+
+    # Build a lookup for sections that are null in the YAML but absent from
+    # section_order — i.e., injected into combined_spec.md by the build script
+    # (e.g. copyright notices) outside the README.md link flow.  Their anchors
+    # are derived by Pandoc from the heading text: hyphens where the section key
+    # has underscores, but otherwise the same words.  Storing the mapping as
+    # anchor → section_key lets us detect them cheaply during the heading walk
+    # without consuming a section_order slot.
+    section_order_set = set(section_order)
+    anchor_to_extra = {
+        key.replace('_', '-'): key          # e.g. 'copyright_license_...' → 'copyright-license-...'
+        for key, val in clause_map.items()
+        if val is None and key not in section_order_set  # null YAML entry not reachable from README.md
+    }
+    # if anchor_to_extra:
+    #     print('[filter_iso_xrefs] extra null sections (injected outside README.md):', file=sys.stderr)
+    #     for anchor_key, section_key in sorted(anchor_to_extra.items()):
+    #         print(f'  anchor={anchor_key!r}  →  section_key={section_key!r}', file=sys.stderr)
 
     # ---- Parse the combined spec ----
     # combined_spec.md is the flat concatenation of all source files produced
@@ -201,6 +227,22 @@ def _build_maps(yaml_path, artifacts_root):
         if level == 1:
             # ---- Level-1 heading: start of a new top-level section ----
 
+            # Check first whether this heading was injected by the build script
+            # outside the README.md link flow (e.g. copyright notices).  These
+            # sections are in the YAML as null but have no entry in section_order,
+            # so they must not consume a section_order slot.
+            if anchor in anchor_to_extra:
+                current_clause = None
+                current_is_annex = False
+                current_section_key = anchor_to_extra[anchor]
+                # heading_text = stringify(block['c'][2])
+                # print(
+                #     f'[filter_iso_xrefs] L1 heading (extra null): '
+                #     f'anchor={anchor!r}  section_key={current_section_key!r}  text={heading_text!r}',
+                #     file=sys.stderr,
+                # )
+                continue  # do not advance section_idx
+
             # Map this heading to its source file by consuming the next entry
             # in section_order.  If section_order is exhausted (e.g. a partial
             # build with --only), section_key is None and the heading is treated
@@ -208,6 +250,13 @@ def _build_maps(yaml_path, artifacts_root):
             section_key = section_order[section_idx] if section_idx < len(section_order) else None
             section_idx += 1
             current_section_key = section_key
+
+            # heading_text = stringify(block['c'][2])
+            # print(
+            #     f'[filter_iso_xrefs] L1 heading #{section_idx:2d}: '
+            #     f'anchor={anchor!r:40}  section_key={section_key!r:30}  text={heading_text!r}',
+            #     file=sys.stderr,
+            # )
 
             if section_key is not None and section_key in clause_map:
                 val = clause_map[section_key]
@@ -328,13 +377,51 @@ class IsoXrefFilter:
             self._clause_map,
         ) = _build_maps(yaml_path, os.getcwd())
 
+        # Debug: uncomment to print the section-key → clause number mapping during a build.
+        # print('[filter_iso_xrefs] clause map (section_key → anchor → number):',
+        #       file=sys.stderr)
+        # for section_key, anchor in sorted(self._root_anchors.items()):
+        #     info = self._anchor_info.get(anchor)
+        #     if info:
+        #         number_str, _level, is_annex = info
+        #         label = f'Annex {number_str}' if is_annex else f'Clause {number_str}'
+        #     else:
+        #         label = '(unnumbered)'
+        #     print(f'  {section_key:<40} {anchor:<40} {label}', file=sys.stderr)
+
     def __call__(self, key, value, fmt, metadata):
         self._initialize(metadata)
+        if key == 'Header':
+            return self._handle_header(value)
         if key == 'Link':
             return self._handle_link(value)
         if key == 'Str':
             return self._handle_str(value)
         return None
+
+    def _handle_header(self, value):
+        """Add the 'unnumbered' class to headings that carry no ISO clause number.
+
+        Pandoc's --number-sections counts every heading sequentially, including
+        front/back matter (Foreword, Introduction, Closing, copyright notices).
+        Marking those headings as 'unnumbered' makes Pandoc skip them in its
+        counter, so the rendered section numbers match the ISO clause numbers
+        assigned by this filter.
+
+        A heading is considered unnumbered if its anchor is absent from
+        _anchor_info, which only contains anchors of numbered clauses and their
+        subclauses.
+
+        Header value layout: [level, [id, classes, kv-pairs], inlines]
+        """
+        anchor = value[1][0]                    # Pandoc-assigned heading id
+        if anchor in self._anchor_info:
+            return None                         # numbered clause — leave Pandoc's counter running
+        classes = value[1][1]
+        if 'unnumbered' in classes:
+            return None                         # already marked — nothing to do
+        new_attr = [value[1][0], classes + ['unnumbered'], value[1][2]]
+        return {'t': 'Header', 'c': [value[0], new_attr, value[2]]}
 
     def _handle_link(self, value):
         url = value[2][0]
@@ -382,7 +469,11 @@ class IsoXrefFilter:
             number_str, level, is_annex = self._anchor_info[root_anchor]
 
         iso_text = _iso_reference_text(number_str, level, is_annex)
-        return Link(value[0], [Str(iso_text)], value[2])
+        link_text = stringify(value[1])
+        if iso_text in link_text:
+            return None  # already annotated — don't duplicate
+        original = Link(value[0], value[1], value[2])
+        return [original, Str(f' ({iso_text})')]
 
     def _handle_str(self, value):
         """Expand inline bibliography citation [N] to 'Reference [N]'."""
