@@ -40,6 +40,7 @@ DIFF_BEFORE_FILENAME_TEMPLATE = "{base}.before_{from_short}"
 DIFF_AFTER_FILENAME_TEMPLATE = "{base}.after_{to_short}"
 DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 
+
 class _ZeroToTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if values is not None and hasattr(values, "__len__") and len(values) > 2:
