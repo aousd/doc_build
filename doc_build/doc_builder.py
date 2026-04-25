@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 import argparse
+import json
 import contextlib
 import inspect
 import os
@@ -674,7 +675,9 @@ class DocBuilder:
         # versions (absolute paths would differ because the two worktrees are
         # in different directories). filter_diff_images resolves paths
         # relative to their respective artifacts dirs after diffing.
+        inject_hash_filter = self.get_filter("inject_image_hash")
         for (md_input, ast_output) in [(combined_from, ast_from), (combined_to, ast_to)]:
+            artifacts_dir = md_input.parent
             pandoc(
                 [
                     md_input,
@@ -684,6 +687,10 @@ class DocBuilder:
                     "json",
                     "-o",
                     ast_output,
+                    "-F",
+                    inject_hash_filter,
+                    "-M",
+                    f"AOUSD_ARTIFACTS_DIR={artifacts_dir}",
                 ]
             )
 
