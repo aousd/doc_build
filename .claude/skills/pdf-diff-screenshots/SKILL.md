@@ -562,8 +562,9 @@ deduping in the previous bullet, launch all unique builds in parallel
 pairs the resulting PDFs into per-branch (before, after) tuples for
 rendering.
 
-**Use system `python3` if `uv` is unavailable.**  The cropping and
-summarize scripts only need PIL and numpy, both of which are usually
-present in the system Python.  As a fallback you can run
-`python3 scripts/crop_changed_regions.py ...` directly - it will work as
-long as those modules import.
+**Check for PIL and numy in default `python3` if `uv` is unavailable.**
+The cropping and summarize scripts only need PIL and numpy, which are
+somewhat common dependencies and may be available on the default
+`python3` executable, if one is present.  If uv is not available,
+check if `python3 scripts/crop_changed_regions.py ...` works - which
+it should as long as those modules import.
