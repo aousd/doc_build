@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
@@ -102,6 +103,21 @@ def _iso_reference_text(number_str, level, is_annex):
     if level == 1:
         return f'Annex {number_str}' if is_annex else f'Clause {number_str}'
     return number_str
+
+
+@dataclass
+class TopSection:
+    """State for the level-1 heading currently being processed in _build_maps.
+
+    Recreated each time a new level-1 heading is encountered; subcounters are
+    mutated in-place as subclause headings accumulate beneath it.
+    """
+    key: str | None                             # section key from the source file path
+    clause: str | None                          # clause number string, or None if unnumbered
+    is_annex: bool = False                      # True when clause is an annex letter (A, B, …)
+    subcounters: list = field(                  # per-level subclause counters; index 0 unused
+        default_factory=lambda: [0] * 7
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +236,7 @@ class IsoXrefFilter:
         self._root_anchors = {}   # section_key -> root anchor
         self._anchor_section = {} # anchor -> section_key (for cross-section disambiguation)
 
-        # Numbering state carried forward as we walk the heading sequence.
-        current_clause = None       # clause number string of the enclosing level-1 heading,
-                                    # or None when inside an unnumbered section
-        current_is_annex = False    # True when the enclosing level-1 heading is an annex
-        current_section_key = None  # section key of the file that contains the current heading
-        subcounters = [0] * 7       # per-level counters; subcounters[N] is the running count
-                                    # for level-N headings within the current clause.
-                                    # Index 0 is unused (headings start at level 1).
+        current_section: TopSection | None = None  # state for the active level-1 heading
         section_idx = 0             # position in section_order; advances on each level-1 heading
         auto_clause_counter = 0     # increments for each level-1 heading not listed in clause_map
 
@@ -248,9 +257,7 @@ class IsoXrefFilter:
                 # sections are in the YAML as null but have no entry in section_order,
                 # so they must not consume a section_order slot.
                 if anchor in anchor_to_extra:
-                    current_clause = None
-                    current_is_annex = False
-                    current_section_key = anchor_to_extra[anchor]
+                    current_section = TopSection(key=anchor_to_extra[anchor], clause=None)
                     continue  # do not advance section_idx
 
                 # Map this heading to its source file by consuming the next entry
@@ -259,7 +266,6 @@ class IsoXrefFilter:
                 # as auto-numbered with no clause-map lookup.
                 section_key = section_order[section_idx] if section_idx < len(section_order) else None
                 section_idx += 1
-                current_section_key = section_key
 
                 if section_key is not None and section_key in self._clause_map:
                     val = self._clause_map[section_key]
@@ -267,66 +273,59 @@ class IsoXrefFilter:
                         # Explicitly suppressed (Foreword, Introduction, etc.).
                         # No entry is added to anchor_info or root_anchors, so
                         # links to this section are left for filter_resolve_sections.
-                        current_clause = None
-                        current_is_annex = False
+                        current_section = TopSection(key=section_key, clause=None)
                     elif isinstance(val, dict) and 'annex' in val:
                         # Annex: numbered independently with a letter (A, B, …).
                         # Subclauses will be A.1, A.1.1, etc.
-                        current_clause = str(val['annex'])
-                        current_is_annex = True
-                        subcounters = [0] * 7
-                        self._root_anchors[section_key] = anchor
-                        self._anchor_info[anchor] = (current_clause, 1, True)
-                        self._anchor_section[anchor] = section_key
+                        current_section = TopSection(key=section_key, clause=str(val['annex']), is_annex=True)
+                        self._root_anchors[current_section.key] = anchor
+                        self._anchor_info[anchor] = (current_section.clause, 1, current_section.is_annex)
+                        self._anchor_section[anchor] = current_section.key
                     else:
                         # Explicit clause number override supplied directly in YAML.
-                        current_clause = str(val)
-                        current_is_annex = False
-                        subcounters = [0] * 7
-                        self._root_anchors[section_key] = anchor
-                        self._anchor_info[anchor] = (current_clause, 1, False)
-                        self._anchor_section[anchor] = section_key
+                        current_section = TopSection(key=section_key, clause=str(val))
+                        self._root_anchors[current_section.key] = anchor
+                        self._anchor_info[anchor] = (current_section.clause, 1, current_section.is_annex)
+                        self._anchor_section[anchor] = current_section.key
                 else:
                     # Section absent from clause_map: assign the next sequential
                     # clause number.  The counter is shared across all auto-numbered
                     # sections so that explicitly-numbered sections (YAML overrides)
                     # do not consume a slot in the sequence.
                     auto_clause_counter += 1
-                    current_clause = str(auto_clause_counter)
-                    current_is_annex = False
-                    subcounters = [0] * 7
-                    if section_key is not None:
-                        self._root_anchors[section_key] = anchor
-                    self._anchor_info[anchor] = (current_clause, 1, False)
-                    if section_key is not None:
-                        self._anchor_section[anchor] = section_key
+                    current_section = TopSection(key=section_key, clause=str(auto_clause_counter))
+                    if current_section.key is not None:
+                        self._root_anchors[current_section.key] = anchor
+                    self._anchor_info[anchor] = (current_section.clause, 1, current_section.is_annex)
+                    if current_section.key is not None:
+                        self._anchor_section[anchor] = current_section.key
 
             else:  # level >= 2
                 # ---- Subclause heading ----
 
-                if current_clause is None:
-                    # Inside an unnumbered section (null in clause_map); skip all
-                    # subheadings so they don't appear in anchor_info and links to
-                    # them are left unchanged for filter_resolve_sections.
+                if current_section is None or current_section.clause is None:
+                    # Outside any numbered section — either before the first heading
+                    # or inside an unnumbered section (null in clause_map); skip so
+                    # these anchors are left for filter_resolve_sections.
                     continue
 
                 # Increment the counter for this level and reset all deeper levels,
                 # mirroring the standard hierarchical numbering convention:
                 # e.g. entering a new level-3 heading resets level-4, 5, 6.
-                subcounters[level] += 1
+                current_section.subcounters[level] += 1
                 for d in range(level + 1, 7):
-                    subcounters[d] = 0
+                    current_section.subcounters[d] = 0
 
                 # Build the dotted number string: clause + each active sublevel.
                 # For a level-3 heading inside Clause 7: "7.2.1" where
                 # subcounters[2] and subcounters[3] are the active level-2 and
                 # level-3 counts.
                 number_str = '.'.join(
-                    [current_clause] + [str(subcounters[i]) for i in range(2, level + 1)]
+                    [current_section.clause] + [str(current_section.subcounters[i]) for i in range(2, level + 1)]
                 )
-                self._anchor_info[anchor] = (number_str, level, current_is_annex)
-                if current_section_key is not None:
-                    self._anchor_section[anchor] = current_section_key
+                self._anchor_info[anchor] = (number_str, level, current_section.is_annex)
+                if current_section.key is not None:
+                    self._anchor_section[anchor] = current_section.key
 
     def _initialize(self, metadata):
         """Populate the maps from iso_clause_map.yaml and combined_spec.md.
