@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from filters.pandocfilters import stringify
+
 # How many non-blank body lines to show as context in a report.
 DEFAULT_CONTEXT_LINES = 5
 
@@ -64,7 +66,7 @@ class Violation:
         lines = [
             f"{self.file}:{self.heading_lineno}: "
             f"{h_marker} \"{self.heading_text}\" "
-            f"has text before its first subclause",
+            # f"has text before its first subclause",
         ]
         for lineno, content in shown:
             lines.append(f"  │ {lineno:5d}: {content}")
@@ -99,37 +101,6 @@ def _get_sourcepos(attr: list) -> Optional[int]:
             pos = val.split("@")[-1]
             return int(pos.split(":")[0])
     return None
-
-
-def _stringify(inlines: list) -> str:
-    """Convert a list of Pandoc inline elements to plain text.
-
-    Handles the inline types that appear in heading text; all others are
-    silently omitted (RawInline, Math, Note, Cite).
-    """
-    parts: List[str] = []
-    for el in inlines:
-        t = el.get("t")
-        if t == "Str":
-            parts.append(el["c"])
-        elif t in ("Space", "SoftBreak", "LineBreak"):
-            parts.append(" ")
-        elif t == "Code":
-            # el["c"] = [Attr, code_string]
-            parts.append(el["c"][1])
-        elif t in ("Emph", "Strong", "Strikeout", "Underline",
-                   "Superscript", "Subscript", "SmallCaps"):
-            parts.append(_stringify(el["c"]))
-        elif t == "Quoted":
-            # el["c"] = [QuoteType, [Inline]]
-            parts.append(_stringify(el["c"][1]))
-        elif t in ("Link", "Image"):
-            # el["c"] = [Attr, [Inline], Target]
-            parts.append(_stringify(el["c"][1]))
-        elif t == "Span":
-            # el["c"] = [Attr, [Inline]]
-            parts.append(_stringify(el["c"][1]))
-    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +153,7 @@ def check_file(path: Path) -> List[Violation]:
             attr: list = block["c"][1]
             inlines: list = block["c"][2]
             lineno: Optional[int] = _get_sourcepos(attr)
-            text: str = _stringify(inlines).strip()
+            text: str = stringify(inlines).strip()
 
             # Check for a violation: the previous heading has body content
             # and this heading is its first direct child (level N+1).
@@ -299,9 +270,7 @@ def format_report(
 
     file_count = len(by_file)
     header = (
-        f'ISO clause structure violations: '
         f'{total} violation(s) in {file_count} file(s)\n'
-        + '─' * 72
     )
     return header + '\n\n' + '\n\n'.join(sections)
 
