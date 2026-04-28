@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 import argparse
+import copy
 import contextlib
 import inspect
 import os
@@ -637,12 +638,8 @@ class DocBuilder:
         output_dir = Path(args.output) / output_subdir
         with git_utils.temp_worktree(self.get_repo_root(), ref, worktree_path):
             builder = self.__class__(repo_root=worktree_path)
-            ref_args = types.SimpleNamespace(
-                output=output_dir,
-                no_draft=getattr(args, "no_draft", False),
-                only=getattr(args, "only", []),
-                exclude=getattr(args, "exclude", []),
-            )
+            ref_args = copy.copy(args)
+            ref_args.output = output_dir
             output_dir.mkdir(parents=True, exist_ok=True)
             return builder._setup_and_preprocess(ref_args)
 
