@@ -247,30 +247,18 @@ class DocBuilder:
 
         if args.diff:
             from_ref, to_ref = args.diff[0], args.diff[1]
-            before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
+            diff_md, from_short, to_short = self.generate_combined_diff(
                 args, from_ref, to_ref
             )
             base = self.get_file_base_name()
             from_pretty = git_utils.get_ref_pretty_str(from_ref, self.get_repo_root())
             to_pretty = git_utils.get_ref_pretty_str(to_ref, self.get_repo_root())
 
-            # For an apples to apples comparison, we do a "final" render of the
-            # full 3x3 matrix of:
-            #  (before, after, diff) x (html, md, pdf)
-            self._render_combined(
-                args,
-                combined=before_md,
-                filename=DIFF_BEFORE_FILENAME_TEMPLATE.format(base=base, from_short=from_short),
-                skip_docx=True,
-                output_dir=args.output / "diff_from",
-            )
-            self._render_combined(
-                args,
-                combined=after_md,
-                filename=DIFF_AFTER_FILENAME_TEMPLATE.format(base=base, to_short=to_short),
-                skip_docx=True,
-                output_dir=args.output / "diff_to",
-            )
+            # The before/after PDFs are rendered inside generate_combined_diff
+            # by a child DocBuilder running against the ref's temporary worktree,
+            # so their subtitles pick up the ref's commit hash rather than the
+            # parent's working-tree hash. The diff itself is rendered here from
+            # the parent because its content is the cross-ref comparison.
             return self._render_combined(
                 args,
                 combined=diff_md,
@@ -632,8 +620,16 @@ class DocBuilder:
         )
         return self.preprocess_build(args)
 
-    def _build_combined_for_ref(self, args, ref, worktree_path, output_subdir):
-        """Build combined.md for a given ref using a temporary worktree. Removes worktree on exit."""
+    def _build_combined_for_ref(
+        self, args, ref, worktree_path, output_subdir, render_filename
+    ):
+        """Build combined.md and render outputs for a given ref using a temporary worktree.
+
+        The render is performed here, by a child DocBuilder rooted at the
+        worktree, so DocBuilder.get_subtitle reads the ref's commit hash
+        instead of the parent process's working-tree hash. Removes worktree
+        on exit.
+        """
         worktree_path = Path(worktree_path)
         output_dir = Path(args.output) / output_subdir
         with git_utils.temp_worktree(self.get_repo_root(), ref, worktree_path):
@@ -641,16 +637,32 @@ class DocBuilder:
             ref_args = copy.copy(args)
             ref_args.output = output_dir
             output_dir.mkdir(parents=True, exist_ok=True)
-            return builder._setup_and_preprocess(ref_args)
+            combined = builder._setup_and_preprocess(ref_args)
+            builder._render_combined(
+                ref_args,
+                combined=combined,
+                filename=render_filename,
+                skip_docx=True,
+            )
+        return combined
 
     def generate_combined_diff(self, args, from_ref, to_ref):
         """Build combined diff markdown from two refs.
 
-        Returns (before_md, after_md, diff_md, from_short, to_short).
+        Renders the before and after outputs as a side effect (via
+        _build_combined_for_ref) so their subtitles use each ref's commit
+        hash. Returns (diff_md, from_short, to_short).
         """
         from_short = git_utils.commit_hash(from_ref, self.get_repo_root(), short=True)
         to_short = git_utils.commit_hash(to_ref, self.get_repo_root(), short=True)
-        diff_basename =DIFF_DIFF_FILENAME_TEMPLATE.format(
+        base = self.get_file_base_name()
+        before_filename = DIFF_BEFORE_FILENAME_TEMPLATE.format(
+            base=base, from_short=from_short
+        )
+        after_filename = DIFF_AFTER_FILENAME_TEMPLATE.format(
+            base=base, to_short=to_short
+        )
+        diff_basename = DIFF_DIFF_FILENAME_TEMPLATE.format(
             base=COMBINED_SPEC_BASENAME,
             from_short=from_short,
             to_short=to_short
@@ -660,9 +672,11 @@ class DocBuilder:
         worktree_from = diff_dir / "wt_from"
         worktree_to = diff_dir / "wt_to"
         combined_from = self._build_combined_for_ref(
-            args, from_ref, worktree_from, "diff_from"
+            args, from_ref, worktree_from, "diff_from", before_filename
         )
-        combined_to = self._build_combined_for_ref(args, to_ref, worktree_to, "diff_to")
+        combined_to = self._build_combined_for_ref(
+            args, to_ref, worktree_to, "diff_to", after_filename
+        )
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
 
@@ -712,7 +726,7 @@ class DocBuilder:
         pandoc(
             ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
         )
-        return combined_from, combined_to, combined_diff_md, from_short, to_short
+        return combined_diff_md, from_short, to_short
 
     def clean_docs(self, args):
         if args.output.exists():
