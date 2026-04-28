@@ -5,6 +5,7 @@ import inspect
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -20,6 +21,7 @@ from doc_build.diff_colors import (
     DIFF_WORD_DEL_RED,
     DIFF_WORD_INS_GREEN,
 )
+from doc_build.utils import git as git_utils
 
 try:
     import yaml
@@ -105,7 +107,108 @@ class ExecCommand:
 
 
 pandoc = ExecCommand("pandoc")
+tectonic = ExecCommand("tectonic")
 git = ExecCommand("git")
+
+
+def _ensure_windows_wrapper_exe(capture_wrapper: Path, wrapper_exe: Path) -> None:
+    """Build the tectonic.exe wrapper via PyInstaller if it does not exist or is stale.
+
+    Rebuilds if wrapper_exe is older than capture_wrapper (the Python source).
+    Uses `pixi exec pyinstaller` so PyInstaller need not be a permanent dependency.
+    """
+    if wrapper_exe.exists() and wrapper_exe.stat().st_mtime >= capture_wrapper.stat().st_mtime:
+        return
+
+    import tempfile
+
+    log("Building tectonic.exe wrapper via PyInstaller (one-time setup)...")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            [
+                "pixi",
+                "exec",
+                "pyinstaller",
+                "--onefile",
+                "--name",
+                "tectonic",
+                "--distpath",
+                str(wrapper_exe.parent),
+                "--workpath",
+                tmp,
+                "--specpath",
+                tmp,
+                "--noconfirm",
+                str(capture_wrapper),
+            ],
+            check=True,
+        )
+
+
+def _call_wrapped_tectonic(
+    pandoc_cmd: list,
+    capture_wrapper: Path,
+    real_tectonic: str,
+    base_env: dict,
+    stderr_processor,
+    tex_file: Path,
+    media_dir: Path,
+) -> None:
+    """Run pandoc with the tectonic capture wrapper active.
+
+    Constructs the capture environment (TEX_CAPTURE_PATH, TEX_MEDIA_DIR,
+    REAL_TECTONIC_PATH) and invokes pandoc.
+
+    On Unix, injects the wrapper directory at the front of PATH so pandoc finds
+    our shebang wrapper before the real tectonic.
+
+    On Windows, pandoc ignores PATH and uses the tectonic that ships in the
+    same pixi environment directory.  The real tectonic.exe must be inside the
+    pixi project (i.e. pixi-managed); we temporarily rename it and drop the
+    pre-built wrapper exe in its place, restoring everything via try/finally.
+    Raises RuntimeError if the real tectonic is outside the pixi project.
+    """
+    capture_env = {
+        **base_env,
+        "TEX_CAPTURE_PATH": str(tex_file),
+        "TEX_MEDIA_DIR": str(media_dir),
+    }
+
+    if sys.platform != "win32":
+        run_env = {
+            **capture_env,
+            "REAL_TECTONIC_PATH": real_tectonic,
+            "PATH": f"{capture_wrapper.parent}{os.pathsep}{capture_env.get('PATH', '')}",
+        }
+        pandoc(pandoc_cmd, stderr_processor=stderr_processor, env=run_env)
+        return
+
+    # Windows: pandoc finds tectonic via its own install directory, not PATH.
+    # Resolve both paths before comparing to normalize mixed slashes and case.
+    # capture_wrapper is <scripts_root>/tools/tectonic; project root is two levels up.
+    pixi_project_root = capture_wrapper.parent.parent.parent.resolve()
+    real_path = Path(real_tectonic).resolve()
+    try:
+        real_path.relative_to(pixi_project_root)
+    except ValueError:
+        raise RuntimeError(
+            f"tectonic binary is outside the pixi project:\n"
+            f"  tectonic: {real_path}\n"
+            f"  project:  {pixi_project_root}\n"
+            "Cannot safely intercept it on Windows."
+        )
+
+    wrapper_exe = capture_wrapper.parent / "tectonic.exe"
+    _ensure_windows_wrapper_exe(capture_wrapper, wrapper_exe)
+    renamed = real_path.with_name("tectonic.original.exe")
+    real_path.rename(renamed)
+    try:
+        shutil.copy2(wrapper_exe, real_path)
+        run_env = {**capture_env, "REAL_TECTONIC_PATH": str(renamed)}
+        pandoc(pandoc_cmd, stderr_processor=stderr_processor, env=run_env)
+    finally:
+        real_path.unlink(missing_ok=True)
+        renamed.rename(real_path)
 
 
 class DocBuilder:
@@ -114,12 +217,7 @@ class DocBuilder:
         if repo_root is not None:
             self._repo_root = Path(repo_root)
         else:
-            self._repo_root = Path(
-                git.get_output(
-                    ["rev-parse", "--show-toplevel"],
-                    cwd=self._get_class_file().parent,
-                ).strip()
-            )
+            self._repo_root = git_utils.repo_root(cwd=self._get_class_file().parent)
 
     # MARK: Target Functions
     def build_docs(self, args):
@@ -129,7 +227,7 @@ class DocBuilder:
 
         if args.diff is not None:
             if len(args.diff) == 0:
-                latest_tag = self.get_latest_semver_tag()
+                latest_tag = git_utils.get_latest_semver_tag(self.get_repo_root())
                 if latest_tag is None:
                     raise ValueError(
                         "--diff given with no arguments, but no semver tags (vX.Y.Z) "
@@ -145,10 +243,13 @@ class DocBuilder:
         args.output.mkdir(parents=True, exist_ok=True)
 
         if args.diff:
+            from_ref, to_ref = args.diff[0], args.diff[1]
             before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
-                args, args.diff[0], args.diff[1]
+                args, from_ref, to_ref
             )
             base = self.get_file_base_name()
+            from_pretty = git_utils.get_ref_pretty_str(from_ref, self.get_repo_root())
+            to_pretty = git_utils.get_ref_pretty_str(to_ref, self.get_repo_root())
 
             # For an apples to apples comparison, we do a "final" render of the
             # full 3x3 matrix of:
@@ -174,6 +275,8 @@ class DocBuilder:
                 skip_docx=True,
                 is_diff=True,
                 output_dir=args.output / "diff",
+                from_pretty=from_pretty,
+                to_pretty=to_pretty,
             )
             # If everything succeeds, we should have an output tree like this
             # (not complete - other intermediate files will exist too...)
@@ -209,6 +312,8 @@ class DocBuilder:
         skip_docx=False,
         is_diff=False,
         output_dir: Path | None = None,
+        from_pretty: Optional[str] = None,
+        to_pretty: Optional[str] = None,
     ):
         """Render HTML, PDF, Markdown, and optionally DOCX from a combined markdown file."""
         if output_dir is None:
@@ -288,12 +393,17 @@ class DocBuilder:
                 "--number-sections=true",
                 "--from",
                 MARKDOWN_FORMAT,
-                "--pdf-engine=tectonic",
             ]
 
             if not args.no_draft:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
+
+            if from_pretty is not None and to_pretty is not None:
+                shared_command.extend([
+                    "-M", f"diff-from-pretty={from_pretty}",
+                    "-M", f"diff-to-pretty={to_pretty}",
+                ])
 
             pdf = None
             docx = None
@@ -334,7 +444,12 @@ class DocBuilder:
                 template_dir = self.get_scripts_root() / "template"
                 latex_template = template_dir / "default.latex"
                 latex_diff_preamble = template_dir / "latex_diff_preamble.tex"
-                log(f"\tBuilding PDF to {pdf}...")
+
+                # Fix the build timestamp so repeated runs produce bit-for-bit
+                # identical PDFs (affects embedded dates and pdf-trailer-id).
+                source_date_epoch = os.environ.get("SOURCE_DATE_EPOCH") or str(int(time.time()))
+                build_env = os.environ.copy()
+                build_env["SOURCE_DATE_EPOCH"] = source_date_epoch
 
                 def stderr_processor(std_err):
                     lines = std_err.splitlines()
@@ -361,13 +476,67 @@ class DocBuilder:
                         log(line, file=sys.stderr)
 
                 pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
-                pandoc(
-                    shared_command + [
-                        "-o", pdf,
-                        f"--template={latex_template}",
-                    ] + pdf_extra,
-                    stderr_processor=stderr_processor,
-                )
+                latex_cmd_base = shared_command + [
+                    f"--template={latex_template}",
+                ] + pdf_extra
+
+                if not getattr(args, "keep_pdf_latex", False):
+                    # Standard path: pandoc pipes directly to tectonic via stdin.
+                    log(f"\tBuilding PDF to {pdf}...")
+                    pandoc(
+                        latex_cmd_base + ["--pdf-engine=tectonic", "-o", pdf],
+                        stderr_processor=stderr_processor,
+                        env=build_env,
+                    )
+                else:
+                    tex_file = output_dir / f"{filename}.tex"
+                    recreate_script = output_dir / "recreate_pdf.py"
+
+                    # A capture wrapper named "tectonic" intercepts the LaTeX pandoc
+                    # pipes to tectonic, saves it to disk, then forwards to the real
+                    # tectonic.  We use the bare engine name "--pdf-engine=tectonic" so
+                    # pandoc applies its own SVG pre-conversion (only triggered by name,
+                    # not a full path).  The wrapper is found first because its parent
+                    # dir is prepended to PATH.
+                    capture_wrapper = self.get_scripts_root() / "tools" / "tectonic"
+                    # Ensure executable bit is set (can be lost when installed from git).
+                    if sys.platform != "win32":
+                        _mode = capture_wrapper.stat().st_mode
+                        if not (_mode & stat.S_IXUSR):
+                            capture_wrapper.chmod(_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+                    # casting to os-native path ensures consistent slashes - was getting paths like:
+                    #    C:\\doc_build\\.pixi\\envs\\default\\Library/bin\\tectonic.EXE
+                    tectonic_path = str(Path(tectonic.binary))
+
+                    log(f"\tBuilding PDF to {pdf}...")
+                    _call_wrapped_tectonic(
+                        latex_cmd_base + ["--pdf-engine=tectonic", "-o", pdf],
+                        capture_wrapper,
+                        tectonic_path,
+                        build_env,
+                        stderr_processor,
+                        tex_file=tex_file,
+                        media_dir=output_dir / "images",
+                    )
+
+                    recreate_template = self.get_scripts_root() / "tools" / "recreate_pdf.py.template"
+                    recreate_script.write_text(
+                        recreate_template.read_text(encoding="utf-8").format(
+                            source_date_epoch=source_date_epoch,
+                            tectonic_path=tectonic_path,
+                            tex_file_name=tex_file.name,
+                            pdf_name=pdf.name,
+                        ),
+                        encoding="utf-8",
+                    )
+                    if sys.platform != "win32":
+                        recreate_script.chmod(
+                            recreate_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                        )
+
+                    log(f"\tCaptured LaTeX: {tex_file}")
+                    log(f"\tTo recreate PDF from .tex: {recreate_script}")
 
             if not args.no_docx and not skip_docx:
                 docx = output_dir / f"{filename}.docx"
@@ -389,11 +558,10 @@ class DocBuilder:
 
     def get_file_base_name(self):
         tokens = ["aousd"]
-        results = git.get_output(["remote", "-v"]).splitlines()
-        for result in results:
-            result = result.split("/")[-1].split()[0].replace(".git", "")
+        remote_url = git_utils.get_remote_url(self.get_repo_root())
+        if remote_url is not None:
+            result = remote_url.split("/")[-1].replace(".git", "")
             tokens.extend([d for d in result.split("-") if d != "wg"])
-            break
         filename = "_".join(tokens)
         return filename
 
@@ -463,14 +631,10 @@ class DocBuilder:
         return self.preprocess_build(args)
 
     def _build_combined_for_ref(self, args, ref, worktree_path, output_subdir):
-        """Build combined.md for a given ref using a temporary worktree. Removes worktree in finally."""
+        """Build combined.md for a given ref using a temporary worktree. Removes worktree on exit."""
         worktree_path = Path(worktree_path)
         output_dir = Path(args.output) / output_subdir
-        try:
-            git(
-                ["worktree", "add", str(worktree_path), ref],
-                cwd=self.get_repo_root(),
-            )
+        with git_utils.temp_worktree(self.get_repo_root(), ref, worktree_path):
             builder = self.__class__(repo_root=worktree_path)
             ref_args = types.SimpleNamespace(
                 output=output_dir,
@@ -480,22 +644,14 @@ class DocBuilder:
             )
             output_dir.mkdir(parents=True, exist_ok=True)
             return builder._setup_and_preprocess(ref_args)
-        finally:
-            try:
-                git(
-                    ["worktree", "remove", str(worktree_path)],
-                    cwd=self.get_repo_root(),
-                )
-            except subprocess.CalledProcessError:
-                pass
 
     def generate_combined_diff(self, args, from_ref, to_ref):
         """Build combined diff markdown from two refs.
 
         Returns (before_md, after_md, diff_md, from_short, to_short).
         """
-        from_short = self.resolve_ref(from_ref, short=True)
-        to_short = self.resolve_ref(to_ref, short=True)
+        from_short = git_utils.commit_hash(from_ref, self.get_repo_root(), short=True)
+        to_short = git_utils.commit_hash(to_ref, self.get_repo_root(), short=True)
         diff_basename =DIFF_DIFF_FILENAME_TEMPLATE.format(
             base=COMBINED_SPEC_BASENAME,
             from_short=from_short,
@@ -512,8 +668,11 @@ class DocBuilder:
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
 
-        # Note: we make sure image paths are absolute, so that they will still
-        # be valid from the diff output, which is in a different directory.
+        # Convert markdown to JSON AST. Image paths are kept relative here so
+        # that the LCS in ast_diff can match unchanged images between the two
+        # versions (absolute paths would differ because the two worktrees are
+        # in different directories). filter_diff_images resolves paths
+        # relative to their respective artifacts dirs after diffing.
         for (md_input, ast_output) in [(combined_from, ast_from), (combined_to, ast_to)]:
             pandoc(
                 [
@@ -524,13 +683,31 @@ class DocBuilder:
                     "json",
                     "-o",
                     ast_output,
-                    f"--metadata=PATH={combined_from.parent}",
-                    f"--filter={self.get_filter('absolute_image_path')}",
                 ]
             )
 
         diff_ast_path = diff_dir / f"{diff_basename}.json"
         diff_ast_files(str(ast_from), str(ast_to), str(diff_ast_path))
+
+        # Copy images from
+        #       build/diff_from/artifacts
+        # and
+        #       build/diff_to/artifacts
+        # to
+        #       build/diff_to/artifacts
+        # ...so that bundle_images filter can find them.
+        # Note that because this is before filter_bundle_images, we have to copy
+        # the entire artifacts directory, not just the images subdirectory,
+        # because images may live at any relative path.
+        diff_artifacts = diff_dir / "artifacts"
+
+        diff_from_artifacts = combined_from.parent
+        shutil.copytree(diff_from_artifacts, diff_artifacts, dirs_exist_ok=True)
+
+        # Just overwrite existing images, because for now we assume that same image path = same image
+        diff_to_artifacts = combined_to.parent
+        shutil.copytree(diff_to_artifacts, diff_artifacts, dirs_exist_ok=True)
+
         # Not strictly necessary (Pandoc can take JSON as input), but converting
         # to markdown unifies the pipeline with the non-diff path and eases debugging.
         combined_diff_md = diff_dir / f"{diff_basename}.md"
@@ -578,6 +755,13 @@ class DocBuilder:
         log(f"Exporting archive to {filepath}...")
         git(["archive", "--format", "zip", "--output", filepath, args.branch])
         return filepath
+      
+    def _export_git_archive_from_args(self, args):
+        return git_utils.export_git_archive(
+            base_filename="aousd_core_spec",
+            branch=args.branch,
+            output=args.output,
+        )
 
     def display_todos(self, args):
         log(f"Listing Todos under {args.output}...")
@@ -753,47 +937,10 @@ class DocBuilder:
 
     # MARK: Utility Functions
 
-    def resolve_ref(self, ref: str, short: bool = False) -> str:
-        """Resolve a git ref (branch, tag, hash) to a commit hash in the repo."""
-        args = ["rev-parse", "--short", ref] if short else ["rev-parse", ref]
-        return git.get_output(args, cwd=self.get_repo_root()).strip()
-
-    _SEMVER_TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
-
-    def get_latest_tag(
-        self,
-        commit: str = "HEAD",
-        glob: Optional[str] = None,
-        pattern: Optional[re.Pattern] = None,
-    ) -> Optional[str]:
-        """Return the most recent tag reachable from commit, or None.
-
-        glob:    shell glob passed to `git tag --list` to pre-filter tags
-        pattern: compiled regexp used to filter results after git returns them
-        """
-        cmd = ["tag", "--list", "--sort=-version:refname", f"--merged={commit}"]
-        if glob is not None:
-            cmd.append(glob)
-        tag_output = git.get_output(cmd, cwd=self.get_repo_root())
-        return next(
-            (
-                line.strip()
-                for line in tag_output.splitlines()
-                if pattern is None or pattern.match(line.strip())
-            ),
-            None,
-        )
-
-    def get_latest_semver_tag(self, commit: str = "HEAD") -> Optional[str]:
-        """Return the most recent vX.Y.Z tag reachable from commit, or None."""
-        return self.get_latest_tag(
-            commit, glob="v*.*.*", pattern=self._SEMVER_TAG_PATTERN
-        )
-
     def get_subtitle(self, defaults_file_path: Path):
         with open(defaults_file_path, "r") as f:
             spec_data = yaml.load(f, Loader=yaml.SafeLoader)
-            commit = self.resolve_ref("HEAD", short=True)
+            commit = git_utils.commit_hash("HEAD", self.get_repo_root(), short=True)
             subtitle = f"v{spec_data['metadata']['version']} ({commit})"
         return subtitle
 
@@ -887,6 +1034,12 @@ class DocBuilder:
             "--no-draft", help="Do not add draft watermark", action="store_true"
         )
         build_parser.add_argument(
+            "--keep-pdf-latex",
+            help="Capture the intermediate LaTeX when building PDF, alongside a "
+            "script to recreate the PDF from the .tex (implies tectonic wrapper)",
+            action="store_true",
+        )
+        build_parser.add_argument(
             "--diff",
             nargs="*",
             metavar=("from_commit", "to_commit"),
@@ -914,7 +1067,7 @@ class DocBuilder:
     def make_export_parser(self, subparsers):
         export_parser = subparsers.add_parser("export", help="Export the git archive")
         export_parser.add_argument("-b", "--branch", default="main")
-        export_parser.set_defaults(func=self.export_git_archive)
+        export_parser.set_defaults(func=self._export_git_archive_from_args)
         return export_parser
 
     def make_todo_parser(self, subparsers):
