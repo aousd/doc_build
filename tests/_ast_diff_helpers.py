@@ -1,6 +1,6 @@
 """Shared Pandoc AST helpers for ast_diff tests.
 
-Factored out for tests/feature/test_ast_diff.py and a soon-to-come
+Used by tests/feature/test_ast_diff.py and
 tests/regression/test_diff_ordering_with_duplicate_nodes.py.  The functions
 construct just enough of the real Pandoc AST shape for the ast_diff module
 to walk over without going through pandoc itself.
