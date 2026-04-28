@@ -104,7 +104,7 @@ def _setup_temp_repo(tmp: Path) -> tuple[str, str]:
     return before_sha, after_sha
 
 
-def build_diff(build_html: bool, build_pdf: bool) -> None:
+def build_diff(build_html: bool, build_pdf: bool, keep_pdf_latex: bool = False) -> None:
     for path in (FIXTURES_DIR / "before_commit", FIXTURES_DIR / "after_commit"):
         if not path.is_dir():
             raise FileNotFoundError(f"Missing fixture directory: {path}")
@@ -132,29 +132,39 @@ def build_diff(build_html: bool, build_pdf: bool) -> None:
             no_draft=True,
             only=[],
             exclude=[],
+            keep_pdf_latex=keep_pdf_latex,
         )
 
         print("Running DocBuilder.build_docs() with --diff...")
         builder.build_docs(args)
 
-        # md is always built; html and pdf are optional
-        num_expected = 1 + int(build_html) + int(build_pdf)
-
         # Copy outputs to tests/build/ with diff_test-* naming
+
+        expected_nums = {
+            # md is always built; html and pdf are optional
+            "aousd_doc_build.*": 1 + int(build_html) + int(build_pdf),
+        }
+        if keep_pdf_latex:
+            # should also be a .tex file...
+            expected_nums["aousd_doc_build.*"] += 1
+            # ... and a recreate_pdf.py file
+            expected_nums["recreate_pdf.py"] = 1
+
         for subdir_name in ("diff_from", "diff_to", "diff"):
             source_subdir = diff_output / subdir_name
             dest_subdir = BUILD_DIR / subdir_name
             dest_subdir.mkdir(parents=True, exist_ok=True)
+            all_source_files = []
+            for pattern, num_expected in expected_nums.items():
+                files = sorted(source_subdir.glob(pattern))
+                if len(files) != num_expected:
+                    raise RuntimeError(f"Expected {num_expected} files for pattern {pattern}, got {len(files)}: {files}")
+                all_source_files.extend(files)
 
-            glob_pattern = "aousd_doc_build.*"
-            files = sorted(source_subdir.glob(glob_pattern))
-
-            if len(files) != num_expected:
-                raise RuntimeError(f"Expected {num_expected} files for {glob_pattern}, got {len(files)}: {files}")
-            for source in files:
-                destination = dest_subdir / source.name
-                shutil.copy(source, destination)
-                print(f"  Written: {destination}")
+                for source in files:
+                    destination = dest_subdir / source.name
+                    shutil.copy(source, destination)
+                    print(f"  Written: {destination}")
             images_src_dir = source_subdir / "images"
             if images_src_dir.is_dir():
                 images_dst_dir = dest_subdir / "images"
@@ -174,6 +184,11 @@ def get_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--html", action="store_true", help="Build HTML output")
     parser.add_argument("--pdf", action="store_true", help="Build PDF output")
+    parser.add_argument(
+        "--keep-pdf-latex",
+        action="store_true",
+        help="Capture the intermediate LaTeX when building PDF (implies tectonic wrapper)",
+    )
     return parser
 
 
@@ -188,7 +203,7 @@ def main(argv=None) -> int:
     build_pdf = args.pdf or not any_specified
 
     try:
-        build_diff(build_html, build_pdf)
+        build_diff(build_html, build_pdf, keep_pdf_latex=args.keep_pdf_latex)
     except Exception:
         traceback.print_exc()
         return 1
