@@ -143,11 +143,7 @@ def get_ref_symbolic_name(ref: str, repo_root: Path) -> Optional[str]:
     if not _HEX_HASH_PATTERN.match(ref):
         return ref
 
-    full_hash = (
-        subprocess.check_output(["git", "rev-parse", ref], cwd=repo_root)
-        .decode("utf-8")
-        .strip()
-    )
+    full_hash = commit_hash(ref, repo_root)
 
     tags_output = (
         subprocess.check_output(["git", "tag", "--points-at", full_hash], cwd=repo_root)
@@ -173,18 +169,19 @@ def get_ref_symbolic_name(ref: str, repo_root: Path) -> Optional[str]:
 
 
 def commit_hash(ref: str, repo_root: Path, *, short: bool = False) -> str:
-    """Resolve a git ref (branch, tag, hash) to a commit hash in the repo."""
-    args = ["git", "rev-parse", "--short", ref] if short else ["git", "rev-parse", ref]
+    """Resolve a git ref (branch, tag, hash) to a commit hash in the repo.
+
+    The ref is peeled to a commit object via ``^{commit}`` so that annotated
+    tags resolve to the commit they point at, not the tag object's own hash.
+    """
+    peeled = f"{ref}^{{commit}}"
+    args = ["git", "rev-parse", "--short", peeled] if short else ["git", "rev-parse", peeled]
     return subprocess.check_output(args, cwd=repo_root).decode("utf-8").strip()
 
 
 def get_ref_pretty_str(ref: str, repo_root: Path) -> str:
     """Return '<symbolic-name> (<short-hash>)' or '(<short-hash>)' for ref."""
-    short_hash = (
-        subprocess.check_output(["git", "rev-parse", "--short", ref], cwd=repo_root)
-        .decode("utf-8")
-        .strip()
-    )
+    short_hash = commit_hash(ref, repo_root, short=True)
     symbolic = get_ref_symbolic_name(ref, repo_root)
     if symbolic:
         return f"{symbolic} ({short_hash})"
