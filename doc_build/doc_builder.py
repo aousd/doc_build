@@ -28,9 +28,6 @@ try:
 except ImportError:
     sys.exit("Please install the PyYAML package: pip install PyYAML.")
 
-if sys.version_info < (3, 10):
-    sys.exit("Python 3.10 or greater is required.")
-
 
 # The output format for the published aousd_core_spec.md file.  We want it to be
 # in a widely / known format, that still has a decent set of extensions to
@@ -44,6 +41,7 @@ COMBINED_SPEC_FILENAME = f"{COMBINED_SPEC_BASENAME}.md"
 DIFF_BEFORE_FILENAME_TEMPLATE = "{base}.before_{from_short}"
 DIFF_AFTER_FILENAME_TEMPLATE = "{base}.after_{to_short}"
 DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
+
 
 class _ZeroToTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -281,7 +279,7 @@ class DocBuilder:
                 to_pretty=to_pretty,
             )
             # If everything succeeds, we should have an output tree like this
-            # (not complete -other intermediate files will exist too...)
+            # (not complete - other intermediate files will exist too...)
             # ├── build
             # │   ├── diff
             # │   │   ├── aousd_doc_build.diff_<fromhash>_to_<tohash>.html,
@@ -335,8 +333,9 @@ class DocBuilder:
         fontpath = Path(os.path.relpath(front_page_dir, artifacts_dir)).as_posix() + "/"
         dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
+        all_filters = self.get_doc_build_filters()
         doc_build_filters = []
-        for doc_filter in self.get_doc_build_filters():
+        for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
 
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it.
@@ -733,6 +732,30 @@ class DocBuilder:
 
         log(f"\tLint output: {linted}")
 
+    def iso_lint(self, args):
+        from doc_build.iso_clause_lint import check_spec, format_report
+
+        spec_root = self.get_specification_root()
+        log(f"Checking ISO clause structure in {spec_root} ...")
+        violations = check_spec(spec_root)
+        report = format_report(
+            violations,
+            context=args.context,
+            spec_root=spec_root,
+        )
+        if report:
+            log(report)
+        else:
+            log("No ISO clause structure violations found.")
+
+    def export_git_archive(self, args):
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
+        filepath = args.output / filename
+        log(f"Exporting archive to {filepath}...")
+        git(["archive", "--format", "zip", "--output", filepath, args.branch])
+        return filepath
+      
     def _export_git_archive_from_args(self, args):
         return git_utils.export_git_archive(
             base_filename="aousd_core_spec",
@@ -931,7 +954,7 @@ class DocBuilder:
 
     def write_yaml(self, output: Path, data: dict):
         if isinstance(output, str):
-            output = Path(str)
+            output = Path(output)
         with output.open("w") as f:
             yaml.dump(data, f)
 
@@ -978,6 +1001,7 @@ class DocBuilder:
         self.make_index_parser(subparsers)
         self.make_spellcheck_parser(subparsers)
         self.make_style_parser(subparsers)
+        self.make_iso_lint_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -1071,6 +1095,21 @@ class DocBuilder:
         )
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
+
+    def make_iso_lint_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "iso_lint",
+            help="Check specification source files for ISO clause structure violations",
+        )
+        p.add_argument(
+            "--context",
+            type=int,
+            default=5,
+            metavar="N",
+            help="Number of body lines to show per violation (default: 5)",
+        )
+        p.set_defaults(func=self.iso_lint)
+        return p
 
     def add_publish_copyright(self, combined):
         intro_copyright = self.get_publish_intro_legalese()
