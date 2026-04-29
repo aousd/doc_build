@@ -707,24 +707,12 @@ class DocBuilder:
         diff_ast_path = diff_dir / f"{diff_basename}.json"
         diff_ast_files(str(ast_from), str(ast_to), str(diff_ast_path))
 
-        # Copy images from
-        #       build/diff_from/artifacts
-        # and
-        #       build/diff_to/artifacts
-        # to
-        #       build/diff_to/artifacts
-        # ...so that bundle_images filter can find them.
-        # Note that because this is before filter_bundle_images, we have to copy
-        # the entire artifacts directory, not just the images subdirectory,
-        # because images may live at any relative path.
-        diff_artifacts = diff_dir / "artifacts"
-
         diff_from_artifacts = combined_from.parent
-        shutil.copytree(diff_from_artifacts, diff_artifacts, dirs_exist_ok=True)
-
-        # Just overwrite existing images, because for now we assume that same image path = same image
         diff_to_artifacts = combined_to.parent
-        shutil.copytree(diff_to_artifacts, diff_artifacts, dirs_exist_ok=True)
+        diff_artifacts = diff_dir / "artifacts"
+        self._copy_diff_images(
+            diff_ast_path, diff_from_artifacts, diff_to_artifacts, diff_artifacts
+        )
 
         # Not strictly necessary (Pandoc can take JSON as input), but converting
         # to markdown unifies the pipeline with the non-diff path and eases debugging.
@@ -733,6 +721,177 @@ class DocBuilder:
             ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
         )
         return combined_diff_md, from_short, to_short
+
+
+    def _copy_diff_images(
+        self,
+        diff_ast_path: Path,
+        from_artifacts: Path,
+        to_artifacts: Path,
+        diff_artifacts: Path,
+    ) -> None:
+        """Copy images from the diff AST to diff_artifacts/images/.
+
+        Classifies images as before/after/unchanged based on which diff
+        Div they appear in, and copies to diff_artifacts/images/ using
+        get_image_rel() for output paths.
+
+        For substitution pairs where both images map to the same output
+        path but have different content hashes, they are renamed to
+        <stem>.before.<ext> / <stem>.after.<ext> and the diff AST paths
+        are updated accordingly.
+
+        Raises RuntimeError if two before (or two after) images map to
+        the same output path.
+        """
+        from doc_build.filters.pandocfilters import walk, get_value
+        from doc_build.filters.shared_filter_utils import get_image_rel
+
+        HASH_ATTR_KEY = "data-image-hash"
+        ORIGINAL_PATH_ATTR_KEY = "data-original-path"
+
+        def _get_path(img_c: list) -> str:
+            return img_c[2][0]
+
+        def _set_path(img_c: list, new_path: str) -> None:
+            img_c[2][0] = new_path
+
+        def _get_hash(img_c: list) -> str | None:
+            hash_val, _ = get_value(img_c[0][2], HASH_ATTR_KEY)
+            return hash_val
+
+        def _set_original_path(img_c: list, path: str) -> None:
+            _, filtered = get_value(img_c[0][2], ORIGINAL_PATH_ATTR_KEY)
+            filtered.append([ORIGINAL_PATH_ATTR_KEY, path])
+            img_c[0][2] = filtered
+
+        def _resolve_src(rel_path: str, base: Path) -> Path:
+            p = Path(rel_path)
+            return p if p.is_absolute() else base / p
+
+        def _safe_copy(src: Path, dest: Path, seen: dict, context: str) -> None:
+            rel_key = str(dest)
+            if rel_key in seen:
+                if seen[rel_key] != str(src):
+                    raise RuntimeError(
+                        f"{context}: image collision at {str(dest)!r}: "
+                        f"already mapped from {seen[rel_key]!r}, "
+                        f"cannot also map from {str(src)!r}"
+                    )
+                return
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            seen[rel_key] = str(src)
+
+        def _collect_images(subtree) -> list:
+            imgs: list = []
+            def gather(k, v, fmt, meta):
+                if k == "Image":
+                    imgs.append(v)
+            walk(subtree, gather, "", {})
+            return imgs
+
+        with open(diff_ast_path, "r", encoding="utf-8") as f:
+            diff_ast = json.load(f)
+
+        images_dir = diff_artifacts / "images"
+        seen_before: dict[str, str] = {}
+        seen_after: dict[str, str] = {}
+        # Tracks id()s of Image content-arrays already handled by a containing
+        # diff Div, so walk's depth-first descent does not re-process them as
+        # "unchanged" when it later reaches the individual Image nodes.
+        processed: set[int] = set()
+
+        def _handle_single_image(
+            img_c: list, base: Path, seen: dict, context: str
+        ) -> None:
+            rel_path = _get_path(img_c)
+            src = _resolve_src(rel_path, base)
+            if not src.exists():
+                return
+            image_rel = get_image_rel(src, base)
+            dest = images_dir / image_rel
+            _safe_copy(src, dest, seen, context)
+            _set_path(img_c, (Path("images") / image_rel).as_posix())
+
+        def _handle_substitution_image(del_c: list, ins_c: list) -> None:
+            del_hash = _get_hash(del_c)
+            ins_hash = _get_hash(ins_c)
+            del_src = _resolve_src(_get_path(del_c), from_artifacts)
+            ins_src = _resolve_src(_get_path(ins_c), to_artifacts)
+
+            if not del_src.exists() or not ins_src.exists():
+                if del_src.exists():
+                    _handle_single_image(del_c, from_artifacts, seen_before, "deletion")
+                if ins_src.exists():
+                    _handle_single_image(ins_c, to_artifacts, seen_after, "insertion")
+                return
+
+            del_rel = get_image_rel(del_src, from_artifacts)
+            ins_rel = get_image_rel(ins_src, to_artifacts)
+            hashes_differ = del_hash != ins_hash
+            paths_differ = del_rel != ins_rel
+
+            if hashes_differ and not paths_differ:
+                stem = del_rel.stem
+                ext = del_rel.suffix
+                parent = del_rel.parent
+                before_rel = parent / f"{stem}.before{ext}"
+                after_rel = parent / f"{stem}.after{ext}"
+                _safe_copy(del_src, images_dir / before_rel, seen_before, "deletion")
+                _safe_copy(ins_src, images_dir / after_rel, seen_after, "insertion")
+                # Preserve original paths before renaming so filter_render_diff
+                # can compare the user-visible source paths, not the renamed outputs.
+                _set_original_path(del_c, _get_path(del_c))
+                _set_original_path(ins_c, _get_path(ins_c))
+                _set_path(del_c, (Path("images") / before_rel).as_posix())
+                _set_path(ins_c, (Path("images") / after_rel).as_posix())
+            else:
+                _handle_single_image(del_c, from_artifacts, seen_before, "deletion")
+                _handle_single_image(ins_c, to_artifacts, seen_after, "insertion")
+
+        def action(key, value, fmt, meta):
+            if key == "Image":
+                if id(value) in processed:
+                    return None
+                _handle_single_image(value, to_artifacts, seen_after, "unchanged")
+                processed.add(id(value))
+                return None
+            if key != "Div":
+                return None
+            attrs, children = value
+            classes = attrs[1]
+            if "substitution" in classes:
+                # children is [deletion_div, insertion_div]; gather images from
+                # the blocks inside each half and pair them up 1-to-1.
+                del_imgs = _collect_images(children[0]["c"][1])
+                ins_imgs = _collect_images(children[1]["c"][1])
+                for di, ii in zip(del_imgs, ins_imgs):
+                    _handle_substitution_image(di, ii)
+                    processed.update((id(di), id(ii)))
+                for img in del_imgs[len(ins_imgs):]:
+                    _handle_single_image(img, from_artifacts, seen_before, "deletion")
+                    processed.add(id(img))
+                for img in ins_imgs[len(del_imgs):]:
+                    _handle_single_image(img, to_artifacts, seen_after, "insertion")
+                    processed.add(id(img))
+            elif "deletion" in classes:
+                for img in _collect_images(children):
+                    if id(img) not in processed:
+                        _handle_single_image(img, from_artifacts, seen_before, "deletion")
+                        processed.add(id(img))
+            elif "insertion" in classes:
+                for img in _collect_images(children):
+                    if id(img) not in processed:
+                        _handle_single_image(img, to_artifacts, seen_after, "insertion")
+                        processed.add(id(img))
+            return None
+
+        walk(diff_ast.get("blocks", []), action, "", {})
+
+        diff_artifacts.mkdir(parents=True, exist_ok=True)
+        with open(diff_ast_path, "w", encoding="utf-8") as f:
+            json.dump(diff_ast, f, indent=2)
 
     def clean_docs(self, args):
         if args.output.exists():
