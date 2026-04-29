@@ -1,5 +1,7 @@
 from pathlib import Path
 
+HASH_ATTR_KEY = "data-image-hash"
+
 
 def get_image_rel(src_abs: Path, images_root: Path) -> Path:
     """Compute destination relative path under images/, stripping 'images' components.
