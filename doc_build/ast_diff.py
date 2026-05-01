@@ -382,36 +382,44 @@ def _merge_with_lcs(
     `_pair_adjacent_changes` needs to fold them into substitution-style
     annotations.
 
+    The LCS is consumed as an *ordered* sequence: at each LCS element we drain
+    every preceding non-LCS element from `before` as a deletion, then every
+    preceding non-LCS element from `after` as an insertion, then take the LCS
+    element itself.  A set-membership check on the LCS would be incorrect:
+    with duplicate elements (or after earlier drift between the two pointers)
+    two different elements can each be 'in the LCS' while not being the same
+    LCS element, and pairing them would advance both pointers across
+    mismatched positions.
+
     Elements may be Pandoc blocks (``PandocNode``) or list items
     (``List[PandocNode]``); the only requirement is that ``json.dumps(element,
     sort_keys=True)`` gives a stable equality key.
     """
-    lcs_set = {json.dumps(n, sort_keys=True) for n in lcs_elements}
+    before_strs = [json.dumps(n, sort_keys=True) for n in before]
+    after_strs = [json.dumps(n, sort_keys=True) for n in after]
+    lcs_strs = [json.dumps(n, sort_keys=True) for n in lcs_elements]
 
     raw: List[Tuple[str, Any]] = []
     ptr_a = ptr_b = 0
-    while ptr_a < len(before) or ptr_b < len(after):
-        a = before[ptr_a] if ptr_a < len(before) else None
-        b = after[ptr_b] if ptr_b < len(after) else None
-        a_str = json.dumps(a, sort_keys=True) if a is not None else None
-        b_str = json.dumps(b, sort_keys=True) if b is not None else None
-
-        if a is not None and a_str not in lcs_set:
-            raw.append(("deletion", a))
-            ptr_a += 1
-        elif b is not None and b_str not in lcs_set:
-            raw.append(("insertion", b))
-            ptr_b += 1
-        elif a is not None and b is not None:
-            raw.append(("equal", a))
-            ptr_a += 1
-            ptr_b += 1
-        elif ptr_a < len(before):
+    for target in lcs_strs:
+        while ptr_a < len(before) and before_strs[ptr_a] != target:
             raw.append(("deletion", before[ptr_a]))
             ptr_a += 1
-        else:
+        while ptr_b < len(after) and after_strs[ptr_b] != target:
             raw.append(("insertion", after[ptr_b]))
             ptr_b += 1
+        # Both pointers are now at an instance of the current LCS element.
+        raw.append(("equal", before[ptr_a]))
+        ptr_a += 1
+        ptr_b += 1
+
+    while ptr_a < len(before):
+        raw.append(("deletion", before[ptr_a]))
+        ptr_a += 1
+    while ptr_b < len(after):
+        raw.append(("insertion", after[ptr_b]))
+        ptr_b += 1
+
     return raw
 
 
