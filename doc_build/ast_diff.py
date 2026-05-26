@@ -17,11 +17,15 @@ with a class indicating its diff status:
 
 import json
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
+
+from doc_build.filters.shared_filter_utils import HASH_ATTR_KEY
 
 PandocNode = Dict[str, Any]
 PandocAst = Dict[str, Any]
 NodeList = List[PandocNode]
+
+IMAGE_ATTRIBUTES_CHANGED_KEY = "image_attributes_changed"
 
 
 def add_diff_meta(node: PandocNode, css_class: str) -> PandocNode:
@@ -42,7 +46,11 @@ def add_diff_meta(node: PandocNode, css_class: str) -> PandocNode:
     return {"t": "Div", "c": [attr, [node]]}
 
 
-def make_substitution_div(old_node: PandocNode, new_node: PandocNode) -> PandocNode:
+def make_substitution_div(
+    old_node: PandocNode,
+    new_node: PandocNode,
+    extra_kv: Optional[List[Tuple[str, str]]] = None,
+) -> PandocNode:
     """
     Wraps old and new nodes in a substitution Div for changed blocks.
 
@@ -52,14 +60,104 @@ def make_substitution_div(old_node: PandocNode, new_node: PandocNode) -> PandocN
     Args:
         old_node: The 'before' version of the block (will be wrapped as deletion).
         new_node: The 'after' version of the block (will be wrapped as insertion).
+        extra_kv: Optional key-value pairs to attach to the substitution Div's
+            attributes (used e.g. to carry image_attributes_changed metadata).
 
     Returns:
         A new 'Div' node with class 'substitution' containing the two diff Divs.
     """
     deletion_div = add_diff_meta(old_node, "deletion")
     insertion_div = add_diff_meta(new_node, "insertion")
-    attr: Tuple[str, List[str], List[Tuple[str, str]]] = ("", ["substitution"], [])
+    kv: List[Tuple[str, str]] = list(extra_kv) if extra_kv else []
+    attr: Tuple[str, List[str], List[Tuple[str, str]]] = ("", ["substitution"], kv)
     return {"t": "Div", "c": [attr, [deletion_div, insertion_div]]}
+
+
+def diff_image_attributes(old_img: PandocNode, new_img: PandocNode) -> List[str]:
+    """Return the list of attribute names that differ between two Image nodes.
+
+    Recognized attribute names: 'binary' (SHA-256 content hash from
+    data-image-hash), 'path' (image URL/filename), 'title', 'caption',
+    'id', 'classes', plus any other attribute key present in the Image's
+    key-value list (e.g. 'width', 'height').  Caption is compared as the
+    full inline AST so formatting-only changes (e.g. adding Emph) count
+    as a change.  Order is stable: binary, path, title, caption, id,
+    classes, then remaining kv keys sorted.
+    """
+    old_attr, old_caption, old_target = old_img["c"]
+    new_attr, new_caption, new_target = new_img["c"]
+    old_id, old_classes, old_kv = old_attr
+    new_id, new_classes, new_kv = new_attr
+    old_kv_map = dict(old_kv)
+    new_kv_map = dict(new_kv)
+
+    changed: List[str] = []
+    if old_kv_map.get(HASH_ATTR_KEY) != new_kv_map.get(HASH_ATTR_KEY):
+        changed.append("binary")
+    if old_target[0] != new_target[0]:
+        changed.append("path")
+    if old_target[1] != new_target[1]:
+        changed.append("title")
+    if old_caption != new_caption:
+        changed.append("caption")
+    if old_id != new_id:
+        changed.append("id")
+    if old_classes != new_classes:
+        changed.append("classes")
+    extra_keys = (set(old_kv_map) | set(new_kv_map)) - {HASH_ATTR_KEY}
+    for k in sorted(extra_keys):
+        if old_kv_map.get(k) != new_kv_map.get(k):
+            changed.append(k)
+    return changed
+
+
+def _extract_single_image(block: PandocNode) -> Optional[PandocNode]:
+    """Return the Image node from a block that contains exactly one Image.
+
+    Handles Figure, Para, and Plain block containers.  For Para/Plain,
+    allows whitespace-only siblings (Space, SoftBreak) alongside the Image.
+    Returns None for any other structure.
+    """
+    t = block.get("t")
+    if t == "Figure":
+        # Figure c = [attr, caption, content (blocks)]
+        _attr, _caption, content = block["c"]
+        if len(content) != 1:
+            return None
+        return _extract_single_image(content[0])
+    if t in ("Para", "Plain"):
+        inlines = block.get("c", [])
+        image: Optional[PandocNode] = None
+        for n in inlines:
+            nt = n.get("t")
+            if nt == "Image":
+                if image is not None:
+                    return None
+                image = n
+            elif nt in ("Space", "SoftBreak"):
+                continue
+            else:
+                return None
+        return image
+    return None
+
+
+def _image_substitution_kv(
+    old_block: PandocNode, new_block: PandocNode
+) -> Optional[List[Tuple[str, str]]]:
+    """Return substitution kv pairs describing image attribute changes, if any.
+
+    Returns None if either block does not contain a single Image, or if the
+    two images have no differing attributes.
+    """
+    old_img = _extract_single_image(old_block)
+    new_img = _extract_single_image(new_block)
+    if old_img is None or new_img is None:
+        return None
+    changed = diff_image_attributes(old_img, new_img)
+    if not changed:
+        return None
+    return [(IMAGE_ATTRIBUTES_CHANGED_KEY, ",".join(changed))]
 
 
 def find_longest_common_subsequence(list_a: NodeList, list_b: NodeList) -> NodeList:
@@ -133,7 +231,8 @@ def _pair_adjacent_changes(blocks: NodeList) -> NodeList:
             elif d.get("t") == "LineBlock" and ins.get("t") == "LineBlock":
                 result.extend(diff_line_block_nodes(d, ins))
             else:
-                result.append(make_substitution_div(d, ins))
+                extra_kv = _image_substitution_kv(d, ins)
+                result.append(make_substitution_div(d, ins, extra_kv=extra_kv))
         for node in deletions[n_pairs:]:
             result.append(add_diff_meta(node, "deletion"))
         for node in insertions[n_pairs:]:

@@ -1,7 +1,9 @@
 #! /usr/bin/env python3
 import argparse
+import copy
 import contextlib
 import inspect
+import json
 import os
 import re
 import shutil
@@ -254,30 +256,18 @@ class DocBuilder:
 
         if args.diff:
             from_ref, to_ref = args.diff[0], args.diff[1]
-            before_md, after_md, diff_md, from_short, to_short = self.generate_combined_diff(
+            diff_md, from_short, to_short = self.generate_combined_diff(
                 args, from_ref, to_ref
             )
             base = self.get_file_base_name()
             from_pretty = git_utils.get_ref_pretty_str(from_ref, self.get_repo_root())
             to_pretty = git_utils.get_ref_pretty_str(to_ref, self.get_repo_root())
 
-            # For an apples to apples comparison, we do a "final" render of the
-            # full 3x3 matrix of:
-            #  (before, after, diff) x (html, md, pdf)
-            self._render_combined(
-                args,
-                combined=before_md,
-                filename=DIFF_BEFORE_FILENAME_TEMPLATE.format(base=base, from_short=from_short),
-                skip_docx=True,
-                output_dir=args.output / "diff_from",
-            )
-            self._render_combined(
-                args,
-                combined=after_md,
-                filename=DIFF_AFTER_FILENAME_TEMPLATE.format(base=base, to_short=to_short),
-                skip_docx=True,
-                output_dir=args.output / "diff_to",
-            )
+            # The before/after PDFs are rendered inside generate_combined_diff
+            # by a child DocBuilder running against the ref's temporary worktree,
+            # so their subtitles pick up the ref's commit hash rather than the
+            # parent's working-tree hash. The diff itself is rendered here from
+            # the parent because its content is the cross-ref comparison.
             return self._render_combined(
                 args,
                 combined=diff_md,
@@ -646,29 +636,49 @@ class DocBuilder:
         )
         return self.preprocess_build(args)
 
-    def _build_combined_for_ref(self, args, ref, worktree_path, output_subdir):
-        """Build combined.md for a given ref using a temporary worktree. Removes worktree on exit."""
+    def _build_combined_for_ref(
+        self, args, ref, worktree_path, output_subdir, render_filename
+    ):
+        """Build combined.md and render outputs for a given ref using a temporary worktree.
+
+        The render is performed here, by a child DocBuilder rooted at the
+        worktree, so DocBuilder.get_subtitle reads the ref's commit hash
+        instead of the parent process's working-tree hash. Removes worktree
+        on exit.
+        """
         worktree_path = Path(worktree_path)
         output_dir = Path(args.output) / output_subdir
         with git_utils.temp_worktree(self.get_repo_root(), ref, worktree_path):
             builder = self.__class__(repo_root=worktree_path)
-            ref_args = types.SimpleNamespace(
-                output=output_dir,
-                no_draft=getattr(args, "no_draft", False),
-                only=getattr(args, "only", []),
-                exclude=getattr(args, "exclude", []),
-            )
+            ref_args = copy.copy(args)
+            ref_args.output = output_dir
             output_dir.mkdir(parents=True, exist_ok=True)
-            return builder._setup_and_preprocess(ref_args)
+            combined = builder._setup_and_preprocess(ref_args)
+            builder._render_combined(
+                ref_args,
+                combined=combined,
+                filename=render_filename,
+                skip_docx=True,
+            )
+        return combined
 
     def generate_combined_diff(self, args, from_ref, to_ref):
         """Build combined diff markdown from two refs.
 
-        Returns (before_md, after_md, diff_md, from_short, to_short).
+        Renders the before and after outputs as a side effect (via
+        _build_combined_for_ref) so their subtitles use each ref's commit
+        hash. Returns (diff_md, from_short, to_short).
         """
         from_short = git_utils.commit_hash(from_ref, self.get_repo_root(), short=True)
         to_short = git_utils.commit_hash(to_ref, self.get_repo_root(), short=True)
-        diff_basename =DIFF_DIFF_FILENAME_TEMPLATE.format(
+        base = self.get_file_base_name()
+        before_filename = DIFF_BEFORE_FILENAME_TEMPLATE.format(
+            base=base, from_short=from_short
+        )
+        after_filename = DIFF_AFTER_FILENAME_TEMPLATE.format(
+            base=base, to_short=to_short
+        )
+        diff_basename = DIFF_DIFF_FILENAME_TEMPLATE.format(
             base=COMBINED_SPEC_BASENAME,
             from_short=from_short,
             to_short=to_short
@@ -678,9 +688,11 @@ class DocBuilder:
         worktree_from = diff_dir / "wt_from"
         worktree_to = diff_dir / "wt_to"
         combined_from = self._build_combined_for_ref(
-            args, from_ref, worktree_from, "diff_from"
+            args, from_ref, worktree_from, "diff_from", before_filename
         )
-        combined_to = self._build_combined_for_ref(args, to_ref, worktree_to, "diff_to")
+        combined_to = self._build_combined_for_ref(
+            args, to_ref, worktree_to, "diff_to", after_filename
+        )
         ast_from = diff_dir / "ast_from.json"
         ast_to = diff_dir / "ast_to.json"
 
@@ -690,6 +702,7 @@ class DocBuilder:
         # in different directories). filter_diff_images resolves paths
         # relative to their respective artifacts dirs after diffing.
         for (md_input, ast_output) in [(combined_from, ast_from), (combined_to, ast_to)]:
+            artifacts_dir = md_input.parent
             pandoc(
                 [
                     md_input,
@@ -699,30 +712,22 @@ class DocBuilder:
                     "json",
                     "-o",
                     ast_output,
+                    "-F",
+                    self.get_filter("inject_image_hash"),
+                    "-M",
+                    f"AOUSD_ARTIFACTS_DIR={artifacts_dir}",
                 ]
             )
 
         diff_ast_path = diff_dir / f"{diff_basename}.json"
         diff_ast_files(str(ast_from), str(ast_to), str(diff_ast_path))
 
-        # Copy images from
-        #       build/diff_from/artifacts
-        # and
-        #       build/diff_to/artifacts
-        # to
-        #       build/diff_to/artifacts
-        # ...so that bundle_images filter can find them.
-        # Note that because this is before filter_bundle_images, we have to copy
-        # the entire artifacts directory, not just the images subdirectory,
-        # because images may live at any relative path.
-        diff_artifacts = diff_dir / "artifacts"
-
         diff_from_artifacts = combined_from.parent
-        shutil.copytree(diff_from_artifacts, diff_artifacts, dirs_exist_ok=True)
-
-        # Just overwrite existing images, because for now we assume that same image path = same image
         diff_to_artifacts = combined_to.parent
-        shutil.copytree(diff_to_artifacts, diff_artifacts, dirs_exist_ok=True)
+        diff_artifacts = diff_dir / "artifacts"
+        self._copy_diff_images(
+            diff_ast_path, diff_from_artifacts, diff_to_artifacts, diff_artifacts
+        )
 
         # Not strictly necessary (Pandoc can take JSON as input), but converting
         # to markdown unifies the pipeline with the non-diff path and eases debugging.
@@ -730,7 +735,178 @@ class DocBuilder:
         pandoc(
             ["-f", "json", "-t", MARKDOWN_FORMAT, "-o", combined_diff_md, diff_ast_path]
         )
-        return combined_from, combined_to, combined_diff_md, from_short, to_short
+        return combined_diff_md, from_short, to_short
+
+
+    def _copy_diff_images(
+        self,
+        diff_ast_path: Path,
+        from_artifacts: Path,
+        to_artifacts: Path,
+        diff_artifacts: Path,
+    ) -> None:
+        """Copy images from the diff AST to diff_artifacts/images/.
+
+        Classifies images as before/after/unchanged based on which diff
+        Div they appear in, and copies to diff_artifacts/images/ using
+        get_image_rel() for output paths.
+
+        For substitution pairs where both images map to the same output
+        path but have different content hashes, they are renamed to
+        <stem>.before.<ext> / <stem>.after.<ext> and the diff AST paths
+        are updated accordingly.
+
+        Raises RuntimeError if two before (or two after) images map to
+        the same output path.
+        """
+        from doc_build.filters.pandocfilters import walk, get_value
+        from doc_build.filters.shared_filter_utils import get_image_rel
+
+        HASH_ATTR_KEY = "data-image-hash"
+        ORIGINAL_PATH_ATTR_KEY = "data-original-path"
+
+        def _get_path(img_c: list) -> str:
+            return img_c[2][0]
+
+        def _set_path(img_c: list, new_path: str) -> None:
+            img_c[2][0] = new_path
+
+        def _get_hash(img_c: list) -> str | None:
+            hash_val, _ = get_value(img_c[0][2], HASH_ATTR_KEY)
+            return hash_val
+
+        def _set_original_path(img_c: list, path: str) -> None:
+            _, filtered = get_value(img_c[0][2], ORIGINAL_PATH_ATTR_KEY)
+            filtered.append([ORIGINAL_PATH_ATTR_KEY, path])
+            img_c[0][2] = filtered
+
+        def _resolve_src(rel_path: str, base: Path) -> Path:
+            p = Path(rel_path)
+            return p if p.is_absolute() else base / p
+
+        def _safe_copy(src: Path, dest: Path, seen: dict, context: str) -> None:
+            rel_key = str(dest)
+            if rel_key in seen:
+                if seen[rel_key] != str(src):
+                    raise RuntimeError(
+                        f"{context}: image collision at {str(dest)!r}: "
+                        f"already mapped from {seen[rel_key]!r}, "
+                        f"cannot also map from {str(src)!r}"
+                    )
+                return
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            seen[rel_key] = str(src)
+
+        def _collect_images(subtree) -> list:
+            imgs: list = []
+            def gather(k, v, fmt, meta):
+                if k == "Image":
+                    imgs.append(v)
+            walk(subtree, gather, "", {})
+            return imgs
+
+        with open(diff_ast_path, "r", encoding="utf-8") as f:
+            diff_ast = json.load(f)
+
+        images_dir = diff_artifacts / "images"
+        seen_before: dict[str, str] = {}
+        seen_after: dict[str, str] = {}
+        # Tracks id()s of Image content-arrays already handled by a containing
+        # diff Div, so walk's depth-first descent does not re-process them as
+        # "unchanged" when it later reaches the individual Image nodes.
+        processed: set[int] = set()
+
+        def _handle_single_image(
+            img_c: list, base: Path, seen: dict, context: str
+        ) -> None:
+            rel_path = _get_path(img_c)
+            src = _resolve_src(rel_path, base)
+            if not src.exists():
+                return
+            image_rel = get_image_rel(src, base)
+            dest = images_dir / image_rel
+            _safe_copy(src, dest, seen, context)
+            _set_path(img_c, (Path("images") / image_rel).as_posix())
+
+        def _handle_substitution_image(del_c: list, ins_c: list) -> None:
+            del_hash = _get_hash(del_c)
+            ins_hash = _get_hash(ins_c)
+            del_src = _resolve_src(_get_path(del_c), from_artifacts)
+            ins_src = _resolve_src(_get_path(ins_c), to_artifacts)
+
+            if not del_src.exists() or not ins_src.exists():
+                if del_src.exists():
+                    _handle_single_image(del_c, from_artifacts, seen_before, "deletion")
+                if ins_src.exists():
+                    _handle_single_image(ins_c, to_artifacts, seen_after, "insertion")
+                return
+
+            del_rel = get_image_rel(del_src, from_artifacts)
+            ins_rel = get_image_rel(ins_src, to_artifacts)
+            hashes_differ = del_hash != ins_hash
+            paths_differ = del_rel != ins_rel
+
+            if hashes_differ and not paths_differ:
+                stem = del_rel.stem
+                ext = del_rel.suffix
+                parent = del_rel.parent
+                before_rel = parent / f"{stem}.before{ext}"
+                after_rel = parent / f"{stem}.after{ext}"
+                _safe_copy(del_src, images_dir / before_rel, seen_before, "deletion")
+                _safe_copy(ins_src, images_dir / after_rel, seen_after, "insertion")
+                # Preserve original paths before renaming so filter_render_diff
+                # can compare the user-visible source paths, not the renamed outputs.
+                _set_original_path(del_c, _get_path(del_c))
+                _set_original_path(ins_c, _get_path(ins_c))
+                _set_path(del_c, (Path("images") / before_rel).as_posix())
+                _set_path(ins_c, (Path("images") / after_rel).as_posix())
+            else:
+                _handle_single_image(del_c, from_artifacts, seen_before, "deletion")
+                _handle_single_image(ins_c, to_artifacts, seen_after, "insertion")
+
+        def action(key, value, fmt, meta):
+            if key == "Image":
+                if id(value) in processed:
+                    return None
+                _handle_single_image(value, to_artifacts, seen_after, "unchanged")
+                processed.add(id(value))
+                return None
+            if key != "Div":
+                return None
+            attrs, children = value
+            classes = attrs[1]
+            if "substitution" in classes:
+                # children is [deletion_div, insertion_div]; gather images from
+                # the blocks inside each half and pair them up 1-to-1.
+                del_imgs = _collect_images(children[0]["c"][1])
+                ins_imgs = _collect_images(children[1]["c"][1])
+                for di, ii in zip(del_imgs, ins_imgs):
+                    _handle_substitution_image(di, ii)
+                    processed.update((id(di), id(ii)))
+                for img in del_imgs[len(ins_imgs):]:
+                    _handle_single_image(img, from_artifacts, seen_before, "deletion")
+                    processed.add(id(img))
+                for img in ins_imgs[len(del_imgs):]:
+                    _handle_single_image(img, to_artifacts, seen_after, "insertion")
+                    processed.add(id(img))
+            elif "deletion" in classes:
+                for img in _collect_images(children):
+                    if id(img) not in processed:
+                        _handle_single_image(img, from_artifacts, seen_before, "deletion")
+                        processed.add(id(img))
+            elif "insertion" in classes:
+                for img in _collect_images(children):
+                    if id(img) not in processed:
+                        _handle_single_image(img, to_artifacts, seen_after, "insertion")
+                        processed.add(id(img))
+            return None
+
+        walk(diff_ast.get("blocks", []), action, "", {})
+
+        diff_artifacts.mkdir(parents=True, exist_ok=True)
+        with open(diff_ast_path, "w", encoding="utf-8") as f:
+            json.dump(diff_ast, f, indent=2)
 
     def clean_docs(self, args):
         if args.output.exists():
@@ -748,6 +924,30 @@ class DocBuilder:
 
         log(f"\tLint output: {linted}")
 
+    def iso_lint(self, args):
+        from doc_build.iso_clause_lint import check_spec, format_report
+
+        spec_root = self.get_specification_root()
+        log(f"Checking ISO clause structure in {spec_root} ...")
+        violations = check_spec(spec_root)
+        report = format_report(
+            violations,
+            context=args.context,
+            spec_root=spec_root,
+        )
+        if report:
+            log(report)
+        else:
+            log("No ISO clause structure violations found.")
+
+    def export_git_archive(self, args):
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
+        filepath = args.output / filename
+        log(f"Exporting archive to {filepath}...")
+        git(["archive", "--format", "zip", "--output", filepath, args.branch])
+        return filepath
+      
     def _export_git_archive_from_args(self, args):
         return git_utils.export_git_archive(
             base_filename="aousd_core_spec",
@@ -1005,6 +1205,7 @@ class DocBuilder:
         self.make_index_parser(subparsers)
         self.make_spellcheck_parser(subparsers)
         self.make_style_parser(subparsers)
+        self.make_iso_lint_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -1104,6 +1305,21 @@ class DocBuilder:
         )
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
+
+    def make_iso_lint_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "iso_lint",
+            help="Check specification source files for ISO clause structure violations",
+        )
+        p.add_argument(
+            "--context",
+            type=int,
+            default=5,
+            metavar="N",
+            help="Number of body lines to show per violation (default: 5)",
+        )
+        p.set_defaults(func=self.iso_lint)
+        return p
 
     def add_publish_copyright(self, combined):
         intro_copyright = self.get_publish_intro_legalese()

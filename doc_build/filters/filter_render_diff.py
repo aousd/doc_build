@@ -786,9 +786,20 @@ def _get_meta_str(meta: Dict, key: str) -> Optional[str]:
     return None
 
 
-def _make_diff_label_para(from_pretty: str, to_pretty: str, diff_type: str, format: str) -> Dict:
+def _make_diff_label_para(
+    from_pretty: str,
+    to_pretty: str,
+    diff_type: str,
+    format: str,
+    image_aspects: Optional[str] = None,
+) -> Dict:
     label = f"Diff - from {from_pretty} to {to_pretty} - {_DIFF_TYPE_LABEL[diff_type]}"
+    if image_aspects:
+        label += f": Image changed: {image_aspects}"
     return _make_styled_comment_block(label, format)
+
+
+IMAGE_ATTRIBUTES_CHANGED_KEY = "image_attributes_changed"
 
 
 def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List[Dict]]:
@@ -804,7 +815,11 @@ def render_diffs(key: str, value: Any, format: str, meta: Dict) -> Optional[List
     if "substitution" in classes:
         result = handle_substitution(content, format)
         if has_label:
-            result = [_make_diff_label_para(from_pretty, to_pretty, "substitution", format)] + result
+            image_aspects = dict(attrs[2]).get(IMAGE_ATTRIBUTES_CHANGED_KEY)
+            result = [_make_diff_label_para(
+                from_pretty, to_pretty, "substitution", format,
+                image_aspects=image_aspects,
+            )] + result
         return result
     elif "insertion" in classes:
         result = handle_whole_block(content, format, "insertion")

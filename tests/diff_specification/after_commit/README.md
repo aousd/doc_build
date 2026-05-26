@@ -83,6 +83,62 @@ PNG - Unchanged
 
 ![Unchanged circle PNG](images/unchanged_circle.png)
 
+SVG - Changed format(caption) only
+
+![Change format(caption: NEW) circle SVG](images/unchanged_circle.svg)
+
+PNG - Changed format(caption) only
+
+![Change format(caption: NEW) circle PNG](images/unchanged_circle.png)
+
+SVG - Changed path(filename) only
+
+![Changed path(filename) star SVG](images/changed_path-filename-dst_star.svg)
+
+PNG - Changed path(filename) only
+
+![Changed path(filename) star PNG](images/changed_path-filename-dst_star.png)
+
+SVG - Changed path(directory), format(caption)
+
+![Changed path(directory), format(caption: NEW) trapezoid SVG](figures/changed_path-dir_trapezoid.svg)
+
+PNG - Changed path(directory), format(caption)
+
+![Changed path(directory), format(caption: NEW) trapezoid PNG](figures/changed_path-dir_trapezoid.png)
+
+SVG - Changed binary only
+
+![Changed binary pentagon-to-square SVG](images/changed_binary_pentagon-to-square.svg)
+
+PNG - Changed binary only
+
+![Changed binary pentagon-to-square PNG](images/changed_binary_pentagon-to-square.png)
+
+SVG - Changed binary, format(caption)
+
+![Changed binary, format(caption: NEW) triangle-to-diamond SVG](images/changed_binary_triangle-to-diamond.svg)
+
+PNG - Changed binary, format(caption)
+
+![Changed binary, format(caption: NEW) triangle-to-diamond PNG](images/changed_binary_triangle-to-diamond.png)
+
+SVG - Changed binary, path(subfolder added)
+
+![Changed binary, path(add subfolder) hexagon-to-chevron SVG](images/sub/changed_binary_path-subdir_hexagon-to-chevron.svg)
+
+PNG - Changed binary, path(subfolder added)
+
+![Changed binary, path(add subfolder) hexagon-to-chevron PNG](images/sub/changed_binary_path-subdir_hexagon-to-chevron.png)
+
+SVG - Changed binary, path(folder and filename), format(caption)
+
+![Changed binary, path(all), format(alt path: NEW) parallelogram-to-chevron SVG](assets/images/changed_binary_path-all_octagon.svg)
+
+PNG - Changed binary, path(folder and filename), format(caption)
+
+![Changed binary, path(all), format(alt path: NEW) parallelogram-to-chevron PNG](assets/images/changed_binary_path-all_octagon.png)
+
 ## Numbered Lists
 
 ### Unchanged
