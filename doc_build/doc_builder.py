@@ -28,8 +28,18 @@ from doc_build.utils import git as git_utils
 try:
     import yaml
 except ImportError:
-    sys.exit("Please install the PyYAML package: pip install PyYAML.")
+    sys.exit("Please install the PyYAML package: pip install PyYAML")
 
+
+# Allow Python3.10
+@contextlib.contextmanager
+def contextlib_chdir(path):
+    old_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(old_dir)
 
 # The output format for the published aousd_core_spec.md file.  We want it to be
 # in a widely / known format, that still has a decent set of extensions to
@@ -324,6 +334,9 @@ class DocBuilder:
         dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
         all_filters = self.get_doc_build_filters()
+        if not getattr(args, 'iso_xrefs', False):
+            iso_filter = self.get_filter("iso_xrefs")
+            all_filters = [f for f in all_filters if f != iso_filter]
         doc_build_filters = []
         for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
@@ -331,7 +344,7 @@ class DocBuilder:
         # Set the cwd to the artifacts dir because it's easier for some filters to work relatively to it.
         # contextlib.chdir restores the previous cwd on exit (even on exception), so on Windows the
         # process doesn't hold a handle to the directory and temp-dir cleanup succeeds.
-        with contextlib.chdir(artifacts_dir):
+        with contextlib_chdir(artifacts_dir):
             shared_command = [
                 "--defaults",
                 spec,
@@ -389,6 +402,8 @@ class DocBuilder:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
 
+            if getattr(args, 'iso_xrefs', False):
+                shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
             if from_pretty is not None and to_pretty is not None:
                 shared_command.extend([
                     "-M", f"diff-from-pretty={from_pretty}",
@@ -541,6 +556,7 @@ class DocBuilder:
             self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
+            self.get_filter("iso_xrefs"),
             self.get_filter("resolve_sections"),
             self.get_filter("sections_new_page"),
             self.get_filter("smaller_listings"),
@@ -1151,6 +1167,18 @@ class DocBuilder:
 
         return self.get_scripts_root() / "defaults.yaml"
 
+    def get_iso_clause_map(self) -> Path:
+        """Return the ISO clause map YAML path.
+
+        Checks for a specification-specific file first
+        (``<spec_root>/iso_clause_map.yaml``), then falls back to the
+        builder-bundled default (``<scripts_root>/iso_clause_map.yaml``).
+        """
+        spec_specific = self.get_specification_root() / "iso_clause_map.yaml"
+        if spec_specific.exists():
+            return spec_specific
+        return self.get_scripts_root() / "iso_clause_map.yaml"
+
     # MARK: Argparser builds
 
     def process_argparser(self):
@@ -1208,6 +1236,12 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--no-draft", help="Do not add draft watermark", action="store_true"
+        )
+        build_parser.add_argument(
+            "--iso-xrefs",
+            help="Apply ISO cross-reference formatting (clause numbers, URL display, "
+                 "citation expansion). Uses a specification-specific iso_clause_map.yaml "
+                 "if present, otherwise falls back to the builder default.",
         )
         build_parser.add_argument(
             "--keep-pdf-latex",
