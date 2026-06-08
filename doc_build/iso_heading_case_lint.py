@@ -27,16 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set
 
-_this_dir = os.path.dirname(os.path.abspath(__file__))
-if _this_dir not in sys.path:
-    sys.path.insert(0, _this_dir)
-_filters_dir = os.path.join(_this_dir, 'filters')
-if _filters_dir not in sys.path:
-    sys.path.insert(0, _filters_dir)
-
 from filters.pandocfilters import stringify
-
-from heading_case import (
+from filters.heading_case import (
     heading_needs_conversion,
     is_proper_noun,
     load_proper_nouns,

@@ -9,18 +9,12 @@ This module provides:
 - A function to check whether a heading is already in sentence case.
 """
 
-import os
+import copy
 import re
-import sys
 from pathlib import Path
 from typing import List, Optional, Set
 
-_this_dir = os.path.dirname(os.path.abspath(__file__))
-if _this_dir not in sys.path:
-    sys.path.insert(0, _this_dir)
-_filters_dir = os.path.join(_this_dir, 'filters')
-if _filters_dir not in sys.path:
-    sys.path.insert(0, _filters_dir)
+from pandocfilters import stringify
 
 try:
     import yaml
@@ -100,29 +94,12 @@ def is_proper_noun(word: str, extra_nouns: Set[str] = frozenset()) -> bool:
 # Sentence-case conversion for Pandoc inlines
 # ---------------------------------------------------------------------------
 
-def _lowercase_word(word: str) -> str:
-    """Lowercase a word, preserving leading/trailing punctuation."""
-    prefix = ''
-    suffix = ''
-    i = 0
-    while i < len(word) and not word[i].isalnum():
-        prefix += word[i]
-        i += 1
-    j = len(word)
-    while j > i and not word[j - 1].isalnum():
-        j -= 1
-        suffix = word[j] + suffix
-    core = word[i:j]
-    return prefix + core.lower() + suffix
-
-
 def _sentence_case_track(
     inlines: list,
     extra_nouns: Set[str],
     first_word_seen: bool,
 ) -> tuple:
     """Internal: convert inlines to sentence case, returning (new_inlines, first_word_seen)."""
-    import copy
     result = copy.deepcopy(inlines)
 
     for node in result:
@@ -144,7 +121,7 @@ def _sentence_case_track(
                 elif is_proper_noun(word, extra_nouns):
                     new_words.append(word)
                 elif has_alpha:
-                    new_words.append(_lowercase_word(word))
+                    new_words.append(word.lower())
                 else:
                     new_words.append(word)
             node['c'] = ' '.join(new_words)
@@ -194,7 +171,6 @@ def sentence_case_inlines(
 
 def _extract_words(inlines: list) -> List[str]:
     """Extract plain-text words from Pandoc inlines, skipping Code/Math."""
-    from filters.pandocfilters import stringify
     text = stringify(inlines)
     return [w for w in re.split(r'\s+', text) if w]
 

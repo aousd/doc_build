@@ -9,13 +9,9 @@ The YAML path is passed via the ``HEADING_PROPER_NOUNS`` pandoc metadata
 variable.  If absent, only heuristic detection is used.
 """
 
-import os
-import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from pandocfilters import Header, stringify, toJSONFilter
+from pandocfilters import Header, toJSONFilter
 
 from heading_case import (
     heading_needs_conversion,
@@ -36,7 +32,6 @@ class HeadingCaseFilter:
             return
         try:
             yaml_path = get_metadata_str(metadata, 'HEADING_PROPER_NOUNS')
-            from pathlib import Path
             self._extra_nouns = load_proper_nouns(Path(yaml_path))
         except KeyError:
             self._extra_nouns = set()
