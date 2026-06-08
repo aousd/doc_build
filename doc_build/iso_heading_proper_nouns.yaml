@@ -1,0 +1,50 @@
+# Proper nouns and domain-specific terms that must retain their capitalisation
+# in heading sentence-case conversion.
+#
+# Words listed here will NOT be lowercased when a heading is converted from
+# title case to sentence case (ISO/IEC Directives, Part 2, 11.4).
+#
+# Heuristics already preserve:
+#   - camelCase / PascalCase identifiers (ObjectPath, UsdGeomMesh)
+#   - ALL_CAPS acronyms (USD, API, ISO, AOUSD, ...)
+#   - Words mixing letters and digits (UTF-8, H264)
+#
+# Add words here that are proper nouns but don't match those patterns.
+# Each entry is case-sensitive and must match the heading text exactly.
+
+proper_nouns:
+  # USD ecosystem
+  - OpenUSD
+  - Pixar
+  - Hydra
+  - Presto
+  - Katana
+  - Houdini
+  - Omniverse
+  - Blender
+  - Maya
+  - Nuke
+  - Solaris
+
+  # Standards bodies and organisations
+  - Unicode
+  - IEEE
+  - Khronos
+  - Autodesk
+  - Apple
+  - Adobe
+  - Google
+  - Microsoft
+  - Nvidia
+  - Linux
+  - Windows
+  - macOS
+
+  # Technical proper nouns
+  - Pandoc
+  - LaTeX
+  - Python
+  - Tectonic
+  - GitHub
+  - Markdown
+  - CommonMark

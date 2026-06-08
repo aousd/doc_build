@@ -254,6 +254,18 @@ class DocBuilder:
                 )
         args.output.mkdir(parents=True, exist_ok=True)
 
+        if getattr(args, 'heading_case_lint', False):
+            from doc_build.iso_heading_case_lint import check_spec, format_report
+            pn_path = getattr(args, 'heading_proper_nouns', None) or self.get_heading_proper_nouns()
+            spec_root = self.get_specification_root()
+            log(f"\tChecking heading sentence case in {spec_root} ...")
+            violations = check_spec(spec_root, proper_nouns_path=pn_path)
+            report = format_report(violations, spec_root=spec_root)
+            if report:
+                log(report)
+            else:
+                log("\tNo heading case violations found.")
+
         if args.diff:
             from_ref, to_ref = args.diff[0], args.diff[1]
             diff_md, from_short, to_short = self.generate_combined_diff(
@@ -337,6 +349,12 @@ class DocBuilder:
         if not getattr(args, 'iso_xrefs', False):
             iso_filter = self.get_filter("iso_xrefs")
             all_filters = [f for f in all_filters if f != iso_filter]
+        if not getattr(args, 'heading_case_filter', False):
+            hc_filter = self.get_filter("heading_case")
+            all_filters = [f for f in all_filters if f != hc_filter]
+        if not getattr(args, 'bold_table_headers', False):
+            bth_filter = self.get_filter("iso_bold_table_header")
+            all_filters = [f for f in all_filters if f != bth_filter]
         doc_build_filters = []
         for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
@@ -404,6 +422,9 @@ class DocBuilder:
 
             if getattr(args, 'iso_xrefs', False):
                 shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
+            if getattr(args, 'heading_case_filter', False):
+                pn_path = getattr(args, 'heading_proper_nouns', None) or self.get_heading_proper_nouns()
+                shared_command.extend(["-M", f"HEADING_PROPER_NOUNS={pn_path}"])
             if from_pretty is not None and to_pretty is not None:
                 shared_command.extend([
                     "-M", f"diff-from-pretty={from_pretty}",
@@ -556,6 +577,8 @@ class DocBuilder:
             self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
+            self.get_filter("heading_case"),
+            self.get_filter("iso_bold_table_header"),
             self.get_filter("iso_xrefs"),
             self.get_filter("resolve_sections"),
             self.get_filter("sections_new_page"),
@@ -940,6 +963,24 @@ class DocBuilder:
         else:
             log("No ISO clause structure violations found.")
 
+    def heading_case_lint(self, args):
+        from doc_build.iso_heading_case_lint import check_spec, format_report
+
+        spec_root = self.get_specification_root()
+        proper_nouns = getattr(args, 'proper_nouns', None)
+        if proper_nouns is None:
+            proper_nouns = self.get_heading_proper_nouns()
+        log(f"Checking heading sentence case in {spec_root} ...")
+        violations = check_spec(
+            spec_root,
+            proper_nouns_path=proper_nouns,
+        )
+        report = format_report(violations, spec_root=spec_root)
+        if report:
+            log(report)
+        else:
+            log("No heading case violations found.")
+
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
@@ -1167,6 +1208,17 @@ class DocBuilder:
 
         return self.get_scripts_root() / "defaults.yaml"
 
+    def get_heading_proper_nouns(self) -> Path:
+        """Return the heading proper-nouns YAML path.
+
+        Checks for a specification-specific file first, then falls back
+        to the builder-bundled default.
+        """
+        spec_specific = self.get_specification_root() / "iso_heading_proper_nouns.yaml"
+        if spec_specific.exists():
+            return spec_specific
+        return self.get_scripts_root() / "iso_heading_proper_nouns.yaml"
+
     def get_iso_clause_map(self) -> Path:
         """Return the ISO clause map YAML path.
 
@@ -1206,6 +1258,7 @@ class DocBuilder:
         self.make_spellcheck_parser(subparsers)
         self.make_style_parser(subparsers)
         self.make_iso_lint_parser(subparsers)
+        self.make_heading_case_lint_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -1248,6 +1301,33 @@ class DocBuilder:
             help="Capture the intermediate LaTeX when building PDF, alongside a "
             "script to recreate the PDF from the .tex (implies tectonic wrapper)",
             action="store_true",
+        )
+        build_parser.add_argument(
+            "--bold-table-headers",
+            help="Bold all table header cells in the output, per ISO/IEC "
+                 "Directives, Part 2.",
+            action="store_true",
+        )
+        build_parser.add_argument(
+            "--heading-case-filter",
+            help="Apply ISO sentence-case conversion to headings at build time "
+                 "(proper nouns are preserved via heuristics and an optional YAML allowlist).",
+            action="store_true",
+        )
+        build_parser.add_argument(
+            "--heading-case-lint",
+            help="Run the ISO heading sentence-case linter before building and "
+                 "print violations (does not block the build).",
+            action="store_true",
+        )
+        build_parser.add_argument(
+            "--heading-proper-nouns",
+            type=Path,
+            default=None,
+            metavar="YAML",
+            help="Path to a YAML file listing additional proper nouns for "
+                 "heading-case enforcement. Defaults to iso_heading_proper_nouns.yaml "
+                 "in the specification or builder root.",
         )
         build_parser.add_argument(
             "--diff",
@@ -1319,6 +1399,22 @@ class DocBuilder:
             help="Number of body lines to show per violation (default: 5)",
         )
         p.set_defaults(func=self.iso_lint)
+        return p
+
+    def make_heading_case_lint_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "heading_case_lint",
+            help="Check specification headings for ISO sentence-case compliance",
+        )
+        p.add_argument(
+            "--proper-nouns",
+            type=Path,
+            default=None,
+            metavar="YAML",
+            help="Path to a YAML file listing additional proper nouns "
+                 "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
+        )
+        p.set_defaults(func=self.heading_case_lint)
         return p
 
     def add_publish_copyright(self, combined):
