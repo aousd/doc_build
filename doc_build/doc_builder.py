@@ -349,9 +349,6 @@ class DocBuilder:
         if not getattr(args, 'iso_xrefs', False):
             iso_filter = self.get_filter("iso_xrefs")
             all_filters = [f for f in all_filters if f != iso_filter]
-        if not getattr(args, 'bold_table_headers', False):
-            bth_filter = self.get_filter("iso_bold_table_header")
-            all_filters = [f for f in all_filters if f != bth_filter]
         doc_build_filters = []
         for doc_filter in all_filters:
             doc_build_filters.extend(["-F", doc_filter])
@@ -571,7 +568,6 @@ class DocBuilder:
             self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
-            self.get_filter("iso_bold_table_header"),
             self.get_filter("iso_xrefs"),
             self.get_filter("resolve_sections"),
             self.get_filter("sections_new_page"),
@@ -1368,12 +1364,6 @@ class DocBuilder:
             "--keep-pdf-latex",
             help="Capture the intermediate LaTeX when building PDF, alongside a "
             "script to recreate the PDF from the .tex (implies tectonic wrapper)",
-            action="store_true",
-        )
-        build_parser.add_argument(
-            "--bold-table-headers",
-            help="Bold all table header cells in the output, per ISO/IEC "
-                 "Directives, Part 2.",
             action="store_true",
         )
         build_parser.add_argument(
