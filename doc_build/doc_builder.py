@@ -1004,7 +1004,7 @@ class DocBuilder:
         log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
 
     def bold_table_lint(self, args):
-        from doc_build.bold_table_lint import check_spec, format_report
+        from doc_build.iso_bold_table_lint import check_spec, format_report
 
         spec_root = self.get_specification_root()
         log(f"Checking bold table headers in {spec_root} ...")
@@ -1016,7 +1016,7 @@ class DocBuilder:
             log("No bold-table-header violations found.")
 
     def bold_table_fix(self, args):
-        from doc_build.bold_table_lint import check_spec, fix_file, format_report
+        from doc_build.iso_bold_table_lint import check_spec, fix_file, format_report
 
         spec_root = self.get_specification_root()
         log(f"Fixing bold table headers in {spec_root} ...")

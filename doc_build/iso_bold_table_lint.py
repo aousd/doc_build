@@ -19,12 +19,12 @@ Fix (``--fix``)
 
 Usage from the command line::
 
-    python3 -m doc_build.bold_table_lint specification/
-    python3 -m doc_build.bold_table_lint --fix specification/
+    python3 -m doc_build.iso_bold_table_lint specification/
+    python3 -m doc_build.iso_bold_table_lint --fix specification/
 
 Usage as a library::
 
-    from doc_build.bold_table_lint import check_spec, fix_file
+    from doc_build.iso_bold_table_lint import check_spec, fix_file
     violations = check_spec(Path("specification/"))
     for v in violations:
         print(v.format())
