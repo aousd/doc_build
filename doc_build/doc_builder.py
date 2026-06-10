@@ -349,9 +349,6 @@ class DocBuilder:
         if not getattr(args, 'iso_xrefs', False):
             iso_filter = self.get_filter("iso_xrefs")
             all_filters = [f for f in all_filters if f != iso_filter]
-        if not getattr(args, 'heading_case_filter', False):
-            hc_filter = self.get_filter("heading_case")
-            all_filters = [f for f in all_filters if f != hc_filter]
         if not getattr(args, 'bold_table_headers', False):
             bth_filter = self.get_filter("iso_bold_table_header")
             all_filters = [f for f in all_filters if f != bth_filter]
@@ -422,9 +419,6 @@ class DocBuilder:
 
             if getattr(args, 'iso_xrefs', False):
                 shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
-            if getattr(args, 'heading_case_filter', False):
-                pn_path = getattr(args, 'heading_proper_nouns', None) or self.get_heading_proper_nouns()
-                shared_command.extend(["-M", f"HEADING_PROPER_NOUNS={pn_path}"])
             if from_pretty is not None and to_pretty is not None:
                 shared_command.extend([
                     "-M", f"diff-from-pretty={from_pretty}",
@@ -577,7 +571,6 @@ class DocBuilder:
             self.get_filter("render_diff"),
             self.get_filter("convert_mathblocks"),
             self.get_filter("header6"),
-            self.get_filter("heading_case"),
             self.get_filter("iso_bold_table_header"),
             self.get_filter("iso_xrefs"),
             self.get_filter("resolve_sections"),
@@ -981,6 +974,78 @@ class DocBuilder:
         else:
             log("No heading case violations found.")
 
+    def heading_case_fix(self, args):
+        from doc_build.iso_heading_case_lint import (
+            check_spec, fix_file, format_report, load_proper_nouns,
+        )
+
+        spec_root = self.get_specification_root()
+        proper_nouns = getattr(args, 'proper_nouns', None)
+        if proper_nouns is None:
+            proper_nouns = self.get_heading_proper_nouns()
+        log(f"Fixing heading sentence case in {spec_root} ...")
+        violations = check_spec(spec_root, proper_nouns_path=proper_nouns)
+        if not violations:
+            log("No heading case violations found.")
+            return
+
+        report = format_report(violations, spec_root=spec_root)
+        log(report)
+
+        extra_nouns = load_proper_nouns(proper_nouns)
+        by_file: dict = {}
+        for v in violations:
+            by_file.setdefault(v.file, []).append(v)
+
+        files_fixed = 0
+        headings_fixed = 0
+        for file_path, file_violations in by_file.items():
+            n = fix_file(file_path, file_violations, extra_nouns)
+            if n:
+                files_fixed += 1
+                headings_fixed += n
+
+        log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
+
+    def bold_table_lint(self, args):
+        from doc_build.bold_table_lint import check_spec, format_report
+
+        spec_root = self.get_specification_root()
+        log(f"Checking bold table headers in {spec_root} ...")
+        violations = check_spec(spec_root)
+        report = format_report(violations, spec_root=spec_root)
+        if report:
+            log(report)
+        else:
+            log("No bold-table-header violations found.")
+
+    def bold_table_fix(self, args):
+        from doc_build.bold_table_lint import check_spec, fix_file, format_report
+
+        spec_root = self.get_specification_root()
+        log(f"Fixing bold table headers in {spec_root} ...")
+        violations = check_spec(spec_root)
+        if not violations:
+            log("No bold-table-header violations found.")
+            return
+
+        report = format_report(violations, spec_root=spec_root)
+        log(report)
+
+        by_file: dict = {}
+        for v in violations:
+            by_file.setdefault(v.file, []).append(v)
+
+        files_fixed = 0
+        rows_fixed = 0
+        for file_path, file_violations in by_file.items():
+            n = fix_file(file_path, file_violations)
+            if n:
+                files_fixed += 1
+                rows_fixed += n
+
+        log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
+
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
         filename = f"aousd_core_spec_{args.branch}_{timestr}.zip"
@@ -1259,6 +1324,9 @@ class DocBuilder:
         self.make_style_parser(subparsers)
         self.make_iso_lint_parser(subparsers)
         self.make_heading_case_lint_parser(subparsers)
+        self.make_heading_case_fix_parser(subparsers)
+        self.make_bold_table_lint_parser(subparsers)
+        self.make_bold_table_fix_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -1306,12 +1374,6 @@ class DocBuilder:
             "--bold-table-headers",
             help="Bold all table header cells in the output, per ISO/IEC "
                  "Directives, Part 2.",
-            action="store_true",
-        )
-        build_parser.add_argument(
-            "--heading-case-filter",
-            help="Apply ISO sentence-case conversion to headings at build time "
-                 "(proper nouns are preserved via heuristics and an optional YAML allowlist).",
             action="store_true",
         )
         build_parser.add_argument(
@@ -1415,6 +1477,38 @@ class DocBuilder:
                  "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
         )
         p.set_defaults(func=self.heading_case_lint)
+        return p
+
+    def make_heading_case_fix_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "heading_case_fix",
+            help="Edit specification sources in-place to convert headings to sentence case",
+        )
+        p.add_argument(
+            "--proper-nouns",
+            type=Path,
+            default=None,
+            metavar="YAML",
+            help="Path to a YAML file listing additional proper nouns "
+                 "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
+        )
+        p.set_defaults(func=self.heading_case_fix)
+        return p
+
+    def make_bold_table_lint_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "bold_table_lint",
+            help="Check that table header cells in specification sources are bold",
+        )
+        p.set_defaults(func=self.bold_table_lint)
+        return p
+
+    def make_bold_table_fix_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "bold_table_fix",
+            help="Edit specification sources in-place to bold table header cells",
+        )
+        p.set_defaults(func=self.bold_table_fix)
         return p
 
     def add_publish_copyright(self, combined):

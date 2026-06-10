@@ -1,31 +1,47 @@
 #!/usr/bin/env python3
-"""ISO heading sentence-case linter for Markdown specification files.
+"""Lint and fix ISO heading sentence case in Markdown specification files.
 
 ISO/IEC Directives, Part 2, 11.4: clause titles shall use sentence case
-(only the first word and proper nouns capitalised).  This module scans
-source Markdown files and reports headings that appear to be in title case.
+(only the first word and proper nouns capitalised).
+
+Two modes:
+
+Lint (default)
+    Parse each ``.md`` file with Pandoc, walk the AST to find Header nodes
+    that appear to be in title case, and report violations with file and
+    line number.
+
+Fix (``--fix``)
+    For every file with violations, rewrite the heading line in-place so
+    that non-first, non-proper-noun words are lowercased.
 
 Proper-noun detection combines heuristics (camelCase, ALL_CAPS, mixed
 alphanumeric) with an optional YAML allowlist of domain-specific terms.
 
-Usage as a library:
-    from doc_build.iso_heading_case_lint import check_spec
-    violations = check_spec(Path("specification/"))
-    for v in violations: print(v.format())
+Usage from the command line::
 
-Usage from the command line:
     python3 -m doc_build.iso_heading_case_lint specification/
+    python3 -m doc_build.iso_heading_case_lint --fix specification/
     python3 -m doc_build.iso_heading_case_lint --proper-nouns custom.yaml spec/
+
+Usage as a library::
+
+    from doc_build.iso_heading_case_lint import check_spec, fix_file
+    violations = check_spec(Path("specification/"))
+    for v in violations:
+        print(v.format())
+    fix_file(Path("specification/some_file.md"), violations, extra_nouns)
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from filters.pandocfilters import stringify
 from filters.heading_case import (
@@ -164,6 +180,138 @@ def check_spec(
 
 
 # ---------------------------------------------------------------------------
+# Source-level fix
+# ---------------------------------------------------------------------------
+
+# Regex matching an ATX heading line: "## Some Heading Text"
+_ATX_HEADING_RE = re.compile(r'^(#{1,6}\s+)(.*?)(\s*)$')
+
+
+def _sentence_case_text(text: str, extra_nouns: Set[str]) -> str:
+    """Convert the text portion of a heading to sentence case.
+
+    Preserves inline Markdown formatting (``*``, ``**``, ``_``, ``[``,
+    etc.) by only modifying alphabetic word sequences.  Code spans
+    (``` `` ```) and link URLs (``](…)``) are left untouched.
+    """
+    # Build a set of character positions that are inside code spans or
+    # link URLs — these must not be modified.
+    protected = set()
+    for m in re.finditer(r'`+.+?`+', text):
+        protected.update(range(m.start(), m.end()))
+    for m in re.finditer(r'\]\([^)]*\)', text):
+        protected.update(range(m.start(), m.end()))
+
+    first_word_seen = False
+    result = list(text)
+
+    for m in re.finditer(r"[A-Za-z][A-Za-z0-9'_-]*", text):
+        # Skip words inside protected ranges (code spans, link URLs).
+        if any(i in protected for i in range(m.start(), m.end())):
+            first_word_seen = True
+            continue
+
+        word = m.group()
+
+        # First alphabetic word in the heading is always preserved.
+        if not first_word_seen:
+            first_word_seen = True
+            continue
+
+        if is_proper_noun(word, extra_nouns):
+            continue
+
+        # Lowercase this word in-place.
+        lowered = word.lower()
+        for i, ch in enumerate(lowered):
+            result[m.start() + i] = ch
+
+    return ''.join(result)
+
+
+def _sentence_case_heading_line(line: str, extra_nouns: Set[str]) -> str:
+    """Convert an ATX heading source line to sentence case.
+
+    Splits the line into ``# `` prefix, text, and trailing whitespace.
+    Only the text portion is case-converted; the prefix and trailing
+    whitespace are preserved verbatim.
+    """
+    m = _ATX_HEADING_RE.match(line)
+    if not m:
+        return line
+    prefix, text, trailing = m.groups()
+    converted = _sentence_case_text(text, extra_nouns)
+    return prefix + converted + trailing
+
+
+def fix_file(
+    path: Path,
+    violations: Optional[List[Violation]] = None,
+    extra_nouns: Set[str] = frozenset(),
+) -> int:
+    """Edit *path* in-place, converting heading lines to sentence case.
+
+    If *violations* is None, runs ``check_file()`` first.
+    Returns the number of headings fixed.
+    """
+    if violations is None:
+        violations = check_file(path, extra_nouns)
+    file_violations = [v for v in violations if v.file == path]
+    if not file_violations:
+        return 0
+
+    lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+    violation_lines = {v.lineno for v in file_violations}
+    fixed = 0
+
+    for lineno in sorted(violation_lines):
+        idx = lineno - 1
+        if idx < 0 or idx >= len(lines):
+            continue
+        original = lines[idx]
+        newline_suffix = ''
+        if original.endswith('\n'):
+            newline_suffix = '\n'
+            original = original[:-1]
+        converted = _sentence_case_heading_line(original, extra_nouns)
+        if converted != original:
+            lines[idx] = converted + newline_suffix
+            fixed += 1
+
+    if fixed:
+        path.write_text(''.join(lines), encoding='utf-8')
+
+    return fixed
+
+
+def fix_spec(
+    spec_root: Path,
+    workers: int = DEFAULT_WORKERS,
+    proper_nouns_path: Optional[Path] = None,
+) -> Tuple[int, int]:
+    """Fix all violations under *spec_root*.  Returns (files_fixed, headings_fixed)."""
+    extra_nouns = load_proper_nouns(proper_nouns_path)
+    violations = check_spec(spec_root, workers=workers, proper_nouns_path=proper_nouns_path)
+    if not violations:
+        return 0, 0
+
+    # Group by file.
+    by_file: dict = {}
+    for v in violations:
+        by_file.setdefault(v.file, []).append(v)
+
+    files_fixed = 0
+    headings_fixed = 0
+    for file_path, file_violations in by_file.items():
+        n = fix_file(file_path, file_violations, extra_nouns)
+        if n:
+            files_fixed += 1
+            headings_fixed += n
+
+    return files_fixed, headings_fixed
+
+
+# ---------------------------------------------------------------------------
 # Report formatting
 # ---------------------------------------------------------------------------
 
@@ -208,13 +356,18 @@ def format_report(
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(
-        description='Check Markdown headings for ISO sentence-case compliance.'
+        description='Check (and optionally fix) Markdown headings for ISO sentence-case compliance.'
     )
     parser.add_argument(
         'path',
         nargs='?',
         default='.',
         help='Spec root directory to scan (default: current directory)',
+    )
+    parser.add_argument(
+        '--fix',
+        action='store_true',
+        help='Edit files in-place to convert title-case headings to sentence case.',
     )
     parser.add_argument(
         '--proper-nouns',
@@ -232,17 +385,46 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     spec_root = Path(args.path).resolve()
-    violations = check_spec(
-        spec_root,
-        workers=args.workers,
-        proper_nouns_path=args.proper_nouns,
-    )
-    report = format_report(violations, spec_root=spec_root)
-    if report:
+
+    if args.fix:
+        violations = check_spec(
+            spec_root,
+            workers=args.workers,
+            proper_nouns_path=args.proper_nouns,
+        )
+        if not violations:
+            print('No heading case violations found.')
+            return
+        report = format_report(violations, spec_root=spec_root)
         print(report)
-        sys.exit(1)
+        print()
+
+        extra_nouns = load_proper_nouns(args.proper_nouns)
+        by_file: dict = {}
+        for v in violations:
+            by_file.setdefault(v.file, []).append(v)
+
+        files_fixed = 0
+        headings_fixed = 0
+        for file_path, file_violations in by_file.items():
+            n = fix_file(file_path, file_violations, extra_nouns)
+            if n:
+                files_fixed += 1
+                headings_fixed += n
+
+        print(f'Fixed {headings_fixed} heading(s) in {files_fixed} file(s).')
     else:
-        print('No heading case violations found.')
+        violations = check_spec(
+            spec_root,
+            workers=args.workers,
+            proper_nouns_path=args.proper_nouns,
+        )
+        report = format_report(violations, spec_root=spec_root)
+        if report:
+            print(report)
+            sys.exit(1)
+        else:
+            print('No heading case violations found.')
 
 
 if __name__ == '__main__':
