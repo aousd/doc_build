@@ -30,6 +30,7 @@ from typing import List, Optional, Tuple
 from doc_build.iso_lint_utils import (
     DEFAULT_WORKERS,
     collect_md_files,
+    format_report as _format_report,
     get_sourcepos,
     run_parallel_check,
     stringify,
@@ -212,29 +213,9 @@ def format_report(
     If *spec_root* is given, file paths are shown relative to it.
     Returns an empty string when there are no violations.
     """
-    if not violations:
-        return ''
-
-    # Group by file for tidier output.
-    by_file: dict = {}
-    for v in violations:
-        rel = v.file.relative_to(spec_root) if spec_root else v.file
-        by_file.setdefault(rel, []).append(v)
-
-    sections: List[str] = []
-    total = 0
-    for rel_path, file_violations in by_file.items():
-        block_lines = [f'{rel_path}']
-        for v in file_violations:
-            block_lines.append(v.format(context=context, display_path=rel_path))
-            total += 1
-        sections.append('\n'.join(block_lines))
-
-    file_count = len(by_file)
-    header = (
-        f'{total} violation(s) in {file_count} file(s)\n'
+    return _format_report(
+        violations, "clause structure", spec_root=spec_root, context=context,
     )
-    return header + '\n\n' + '\n\n'.join(sections)
 
 
 # ---------------------------------------------------------------------------

@@ -32,16 +32,16 @@ Usage as a library::
 """
 
 import json
-import re
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
 from doc_build.iso_lint_utils import (
     DEFAULT_WORKERS,
     collect_md_files,
+    format_report as _format_report,
     get_sourcepos,
     run_parallel_check,
     stringify,
@@ -306,26 +306,7 @@ def format_report(
     violations: List[Violation],
     spec_root: Optional[Path] = None,
 ) -> str:
-    if not violations:
-        return ''
-
-    by_file: dict = {}
-    for v in violations:
-        rel = v.file.relative_to(spec_root) if spec_root else v.file
-        by_file.setdefault(rel, []).append(v)
-
-    sections: List[str] = []
-    total = 0
-    for rel_path, file_violations in by_file.items():
-        block_lines = [str(rel_path)]
-        for v in file_violations:
-            block_lines.append(v.format(display_path=rel_path))
-            total += 1
-        sections.append('\n'.join(block_lines))
-
-    file_count = len(by_file)
-    header = f'{total} bold-table-header violation(s) in {file_count} file(s)\n'
-    return header + '\n' + '\n\n'.join(sections)
+    return _format_report(violations, "bold-table-header", spec_root=spec_root)
 
 
 # ---------------------------------------------------------------------------

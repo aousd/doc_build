@@ -7,7 +7,7 @@ and ``iso_clause_lint``.
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 try:
     from doc_build.filters.pandocfilters import stringify
@@ -18,6 +18,7 @@ except ImportError:
 __all__ = [
     "DEFAULT_WORKERS",
     "collect_md_files",
+    "format_report",
     "get_sourcepos",
     "run_parallel_check",
     "stringify",
@@ -96,6 +97,45 @@ def get_sourcepos(attr: list) -> Optional[int]:
                     min_line = line
             return min_line
     return None
+
+
+def format_report(
+    violations: List[Any],
+    label: str,
+    spec_root: Optional[Path] = None,
+    **format_kwargs,
+) -> str:
+    """Format a list of violations into a human-readable report.
+
+    Each violation must have a ``.file`` attribute (a ``Path``) and a
+    ``.format(display_path=..., **kwargs)`` method.
+
+    *label* is a short noun phrase used in the summary line, e.g.
+    ``"heading case"`` → ``"3 heading case violation(s) in 2 file(s)"``.
+
+    Extra *format_kwargs* are forwarded to each violation's ``.format()``
+    call (e.g. ``context=5`` for the clause linter).
+    """
+    if not violations:
+        return ''
+
+    by_file: dict = {}
+    for v in violations:
+        rel = v.file.relative_to(spec_root) if spec_root else v.file
+        by_file.setdefault(rel, []).append(v)
+
+    sections: List[str] = []
+    total = 0
+    for rel_path, file_violations in by_file.items():
+        block_lines = [str(rel_path)]
+        for v in file_violations:
+            block_lines.append(v.format(display_path=rel_path, **format_kwargs))
+            total += 1
+        sections.append('\n'.join(block_lines))
+
+    file_count = len(by_file)
+    header = f'{total} {label} violation(s) in {file_count} file(s)\n'
+    return header + '\n' + '\n\n'.join(sections)
 
 
 def unwrap_sourcepos_spans(inlines: list) -> list:
