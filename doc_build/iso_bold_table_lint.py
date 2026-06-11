@@ -32,7 +32,6 @@ Usage as a library::
 """
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -46,7 +45,12 @@ try:
 except ImportError:
     from filters.pandocfilters import stringify
 
-DEFAULT_WORKERS = 8
+from doc_build.iso_lint_utils import (
+    DEFAULT_WORKERS,
+    collect_md_files,
+    get_sourcepos,
+    unwrap_sourcepos_spans,
+)
 
 # Regex matching a pipe-table separator row:  |---|---|  or  |:---:|---:|
 _SEPARATOR_RE = re.compile(
@@ -81,47 +85,6 @@ class Violation:
 # AST-based detection (lint)
 # ---------------------------------------------------------------------------
 
-def _get_sourcepos(attr: list) -> Optional[int]:
-    """Extract the start line of the full table span from a Pandoc sourcepos Attr.
-
-    Pandoc's data-pos for pipe tables may contain two semicolon-separated
-    ranges: the first covers the separator row, the second covers the entire
-    table (header through last body row).  We want the earliest start line
-    across all ranges — that is the header row.
-    """
-    for key, val in attr[2]:
-        if key == "data-pos":
-            # Strip optional "filepath@" prefix.
-            pos = val.split("@")[-1]
-            # Multiple ranges separated by ";".
-            min_line = None
-            for span in pos.split(";"):
-                start = span.split("-")[0]
-                line = int(start.split(":")[0])
-                if min_line is None or line < min_line:
-                    min_line = line
-            return min_line
-    return None
-
-
-def _unwrap_sourcepos_spans(inlines: list) -> list:
-    """Unwrap Span nodes injected by Pandoc's +sourcepos extension.
-
-    With +sourcepos, every inline is wrapped in a Span carrying a
-    data-pos attribute.  This function peels those wrappers so that the
-    structural content (Strong, Code, Str, …) is directly visible.
-    """
-    result = []
-    for node in inlines:
-        if (isinstance(node, dict)
-                and node.get("t") == "Span"
-                and any(k == "wrapper" for k, _ in node["c"][0][2])):
-            result.extend(_unwrap_sourcepos_spans(node["c"][1]))
-        else:
-            result.append(node)
-    return result
-
-
 def _cell_needs_bold(blocks: list) -> bool:
     """Return True if a header cell's content is not bold.
 
@@ -139,7 +102,7 @@ def _cell_needs_bold(blocks: list) -> bool:
         bt = block.get("t")
         if bt not in ("Para", "Plain"):
             continue
-        inlines = _unwrap_sourcepos_spans(block.get("c", []))
+        inlines = unwrap_sourcepos_spans(block.get("c", []))
         if not inlines:
             continue
 
@@ -188,7 +151,7 @@ def check_file(path: Path) -> List[Violation]:
         # Table: [attr, caption, colspecs, head, bodies, foot]
         table_attr = block["c"][0]
         head = block["c"][3]
-        table_lineno = _get_sourcepos(table_attr)
+        table_lineno = get_sourcepos(table_attr)
 
         # TableHead: [head_attr, rows]
         _, rows = head
@@ -222,12 +185,7 @@ def check_spec(
     workers: int = DEFAULT_WORKERS,
 ) -> List[Violation]:
     """Walk *spec_root* recursively and return all violations in .md files."""
-    md_files: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(spec_root):
-        dirnames.sort()
-        for fname in sorted(filenames):
-            if fname.endswith('.md'):
-                md_files.append(Path(dirpath) / fname)
+    md_files = collect_md_files(spec_root)
 
     all_violations: List[Violation] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:

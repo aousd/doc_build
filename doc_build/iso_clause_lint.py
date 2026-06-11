@@ -21,7 +21,6 @@ Usage from the command line:
 """
 
 import json
-import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,11 +30,14 @@ from typing import List, Optional, Tuple
 
 from filters.pandocfilters import stringify
 
+from doc_build.iso_lint_utils import (
+    DEFAULT_WORKERS,
+    collect_md_files,
+    get_sourcepos,
+)
+
 # How many non-blank body lines to show as context in a report.
 DEFAULT_CONTEXT_LINES = 5
-
-# Maximum number of parallel Pandoc subprocesses used by check_spec().
-DEFAULT_WORKERS = 8
 
 
 # ---------------------------------------------------------------------------
@@ -77,30 +79,6 @@ class Violation:
             f"(line {self.first_sub_lineno})"
         )
         return '\n'.join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Pandoc AST helpers
-# ---------------------------------------------------------------------------
-
-def _get_sourcepos(attr: list) -> Optional[int]:
-    """Extract the start line number from a Pandoc sourcepos Attr.
-
-    Attr layout: [id, [classes], [[key, value], ...]]
-
-    When Pandoc reads from a file the data-pos value has the form
-    "filepath@startrow:startcol-endrow:endcol"; when reading from stdin it
-    omits the "filepath@" prefix.  Both forms are handled here.
-
-    Returns the start row as a 1-based integer, or None if the attribute is
-    absent.
-    """
-    for key, val in attr[2]:
-        if key == "data-pos":
-            # Strip optional "filepath@" prefix before the row:col range.
-            pos = val.split("@")[-1]
-            return int(pos.split(":")[0])
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +130,7 @@ def check_file(path: Path) -> List[Violation]:
             level: int = block["c"][0]
             attr: list = block["c"][1]
             inlines: list = block["c"][2]
-            lineno: Optional[int] = _get_sourcepos(attr)
+            lineno: Optional[int] = get_sourcepos(attr)
             text: str = stringify(inlines).strip()
 
             # Check for a violation: the previous heading has body content
@@ -205,16 +183,12 @@ def check_spec(
 ) -> List[Violation]:
     """Walk *spec_root* recursively and return all violations in .md files.
 
-    Files are processed in parallel (up to *workers* simultaneous Pandoc
+    *spec_root* may be a single ``.md`` file or a directory.  Files are
+    processed in parallel (up to *workers* simultaneous Pandoc
     subprocesses) for speed, then results are sorted by (file path, line
     number) so that output is stable across runs.
     """
-    md_files: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(spec_root):
-        dirnames.sort()
-        for fname in sorted(filenames):
-            if fname.endswith('.md'):
-                md_files.append(Path(dirpath) / fname)
+    md_files = collect_md_files(spec_root)
 
     all_violations: List[Violation] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:

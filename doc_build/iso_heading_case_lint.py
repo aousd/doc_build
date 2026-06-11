@@ -34,7 +34,6 @@ Usage as a library::
 """
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -51,7 +50,11 @@ from filters.heading_case import (
     sentence_case_inlines,
 )
 
-DEFAULT_WORKERS = 8
+from doc_build.iso_lint_utils import (
+    DEFAULT_WORKERS,
+    collect_md_files,
+    get_sourcepos,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -84,14 +87,6 @@ class Violation:
 # ---------------------------------------------------------------------------
 # Pandoc AST helpers
 # ---------------------------------------------------------------------------
-
-def _get_sourcepos(attr: list) -> Optional[int]:
-    for key, val in attr[2]:
-        if key == "data-pos":
-            pos = val.split("@")[-1]
-            return int(pos.split(":")[0])
-    return None
-
 
 def _find_non_sentence_words(inlines: list, extra_nouns: Set[str]) -> List[str]:
     """Return words that are capitalised but not proper nouns (skipping the first word)."""
@@ -132,7 +127,7 @@ def check_file(path: Path, extra_nouns: Set[str] = frozenset()) -> List[Violatio
         level = block["c"][0]
         attr = block["c"][1]
         inlines = block["c"][2]
-        lineno = _get_sourcepos(attr)
+        lineno = get_sourcepos(attr)
 
         if not heading_needs_conversion(inlines, extra_nouns):
             continue
@@ -162,12 +157,7 @@ def check_spec(
     """Walk *spec_root* recursively and return all violations in .md files."""
     extra_nouns = load_proper_nouns(proper_nouns_path)
 
-    md_files: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(spec_root):
-        dirnames.sort()
-        for fname in sorted(filenames):
-            if fname.endswith('.md'):
-                md_files.append(Path(dirpath) / fname)
+    md_files = collect_md_files(spec_root)
 
     all_violations: List[Violation] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:

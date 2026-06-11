@@ -936,7 +936,7 @@ class DocBuilder:
 
         log(f"\tLint output: {linted}")
 
-    def iso_lint(self, args):
+    def iso_clause_lint(self, args):
         from doc_build.iso_clause_lint import check_spec, format_report
 
         spec_root = self.get_specification_root()
@@ -1041,6 +1041,125 @@ class DocBuilder:
                 rows_fixed += n
 
         log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
+
+    def iso_lint_all(self, args):
+        """Run all three ISO linters: clause structure, heading case, bold table headers."""
+        failed = False
+
+        # 1. Clause structure
+        from doc_build.iso_clause_lint import (
+            check_spec as clause_check, format_report as clause_report,
+        )
+        spec_root = self.get_specification_root()
+        log(f"Checking ISO clause structure in {spec_root} ...")
+        clause_violations = clause_check(spec_root)
+        report = clause_report(clause_violations, context=getattr(args, 'context', 5), spec_root=spec_root)
+        if report:
+            log(report)
+            failed = True
+        else:
+            log("No ISO clause structure violations found.")
+
+        # 2. Heading sentence case
+        from doc_build.iso_heading_case_lint import (
+            check_spec as heading_check, format_report as heading_report,
+        )
+        proper_nouns = getattr(args, 'proper_nouns', None)
+        if proper_nouns is None:
+            proper_nouns = self.get_heading_proper_nouns()
+        log(f"\nChecking heading sentence case in {spec_root} ...")
+        heading_violations = heading_check(spec_root, proper_nouns_path=proper_nouns)
+        report = heading_report(heading_violations, spec_root=spec_root)
+        if report:
+            log(report)
+            failed = True
+        else:
+            log("No heading case violations found.")
+
+        # 3. Bold table headers
+        from doc_build.iso_bold_table_lint import (
+            check_spec as bold_check, format_report as bold_report,
+        )
+        log(f"\nChecking bold table headers in {spec_root} ...")
+        bold_violations = bold_check(spec_root)
+        report = bold_report(bold_violations, spec_root=spec_root)
+        if report:
+            log(report)
+            failed = True
+        else:
+            log("No bold-table-header violations found.")
+
+        if failed:
+            sys.exit(1)
+
+    def iso_fix_all(self, args):
+        """Run all three ISO fixers: heading case and bold table headers (clause structure is lint-only)."""
+        spec_root = self.get_specification_root()
+
+        # 1. Heading sentence case
+        from doc_build.iso_heading_case_lint import (
+            check_spec as heading_check, fix_file as heading_fix,
+            format_report as heading_report, load_proper_nouns,
+        )
+        proper_nouns = getattr(args, 'proper_nouns', None)
+        if proper_nouns is None:
+            proper_nouns = self.get_heading_proper_nouns()
+        log(f"Fixing heading sentence case in {spec_root} ...")
+        heading_violations = heading_check(spec_root, proper_nouns_path=proper_nouns)
+        if heading_violations:
+            report = heading_report(heading_violations, spec_root=spec_root)
+            log(report)
+            extra_nouns = load_proper_nouns(proper_nouns)
+            by_file: dict = {}
+            for v in heading_violations:
+                by_file.setdefault(v.file, []).append(v)
+            files_fixed = 0
+            headings_fixed = 0
+            for file_path, file_violations in by_file.items():
+                n = heading_fix(file_path, file_violations, extra_nouns)
+                if n:
+                    files_fixed += 1
+                    headings_fixed += n
+            log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
+        else:
+            log("No heading case violations found.")
+
+        # 2. Bold table headers
+        from doc_build.iso_bold_table_lint import (
+            check_spec as bold_check, fix_file as bold_fix,
+            format_report as bold_report,
+        )
+        log(f"\nFixing bold table headers in {spec_root} ...")
+        bold_violations = bold_check(spec_root)
+        if bold_violations:
+            report = bold_report(bold_violations, spec_root=spec_root)
+            log(report)
+            by_file = {}
+            for v in bold_violations:
+                by_file.setdefault(v.file, []).append(v)
+            files_fixed = 0
+            rows_fixed = 0
+            for file_path, file_violations in by_file.items():
+                n = bold_fix(file_path, file_violations)
+                if n:
+                    files_fixed += 1
+                    rows_fixed += n
+            log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
+        else:
+            log("No bold-table-header violations found.")
+
+        # 3. Clause structure (lint-only, no auto-fix)
+        from doc_build.iso_clause_lint import (
+            check_spec as clause_check, format_report as clause_report,
+        )
+        log(f"\nChecking ISO clause structure in {spec_root} ...")
+        clause_violations = clause_check(spec_root)
+        report = clause_report(clause_violations, context=getattr(args, 'context', 5), spec_root=spec_root)
+        if report:
+            log(report)
+            log("\nNote: clause structure violations require manual editing.")
+        else:
+            log("No ISO clause structure violations found.")
 
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -1318,11 +1437,13 @@ class DocBuilder:
         self.make_index_parser(subparsers)
         self.make_spellcheck_parser(subparsers)
         self.make_style_parser(subparsers)
-        self.make_iso_lint_parser(subparsers)
+        self.make_iso_clause_lint_parser(subparsers)
         self.make_heading_case_lint_parser(subparsers)
         self.make_heading_case_fix_parser(subparsers)
         self.make_bold_table_lint_parser(subparsers)
         self.make_bold_table_fix_parser(subparsers)
+        self.make_iso_lint_all_parser(subparsers)
+        self.make_iso_fix_all_parser(subparsers)
         return subparsers
 
     def make_build_parser(self, subparsers):
@@ -1438,9 +1559,9 @@ class DocBuilder:
         style_parser.set_defaults(func=self.display_style_issues)
         return style_parser
 
-    def make_iso_lint_parser(self, subparsers):
+    def make_iso_clause_lint_parser(self, subparsers):
         p = subparsers.add_parser(
-            "iso_lint",
+            "iso_clause_lint",
             help="Check specification source files for ISO clause structure violations",
         )
         p.add_argument(
@@ -1450,7 +1571,7 @@ class DocBuilder:
             metavar="N",
             help="Number of body lines to show per violation (default: 5)",
         )
-        p.set_defaults(func=self.iso_lint)
+        p.set_defaults(func=self.iso_clause_lint)
         return p
 
     def make_heading_case_lint_parser(self, subparsers):
@@ -1499,6 +1620,38 @@ class DocBuilder:
             help="Edit specification sources in-place to bold table header cells",
         )
         p.set_defaults(func=self.bold_table_fix)
+        return p
+
+    def make_iso_lint_all_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "iso_lint_all",
+            help="Run all ISO linters (clause structure, heading case, bold table headers)",
+        )
+        p.add_argument(
+            "--proper-nouns",
+            type=Path,
+            default=None,
+            metavar="YAML",
+            help="Path to a YAML file listing additional proper nouns "
+                 "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
+        )
+        p.set_defaults(func=self.iso_lint_all)
+        return p
+
+    def make_iso_fix_all_parser(self, subparsers):
+        p = subparsers.add_parser(
+            "iso_fix_all",
+            help="Run all ISO fixers (heading case, bold table headers) and lint clause structure",
+        )
+        p.add_argument(
+            "--proper-nouns",
+            type=Path,
+            default=None,
+            metavar="YAML",
+            help="Path to a YAML file listing additional proper nouns "
+                 "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
+        )
+        p.set_defaults(func=self.iso_fix_all)
         return p
 
     def add_publish_copyright(self, combined):
