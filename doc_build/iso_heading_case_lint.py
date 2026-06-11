@@ -72,7 +72,7 @@ class Violation:
     suggested_text: str
     non_sentence_words: List[str] = field(default_factory=list)
 
-    def format(self, display_path: Optional[Path] = None) -> str:
+    def format(self, *, display_path: Optional[Path] = None) -> str:
         path = display_path if display_path is not None else self.file
         marker = '#' * self.level
         words_str = ', '.join(f'"{w}"' for w in self.non_sentence_words)
@@ -274,10 +274,16 @@ def fix_spec(
     spec_root: Path,
     workers: int = DEFAULT_WORKERS,
     proper_nouns_path: Optional[Path] = None,
+    violations: Optional[List[Violation]] = None,
 ) -> Tuple[int, int]:
-    """Fix all violations under *spec_root*.  Returns (files_fixed, headings_fixed)."""
+    """Fix all violations under *spec_root*.  Returns (files_fixed, headings_fixed).
+
+    If *violations* is provided, skips the check pass and fixes those
+    directly — useful when the caller already ran ``check_spec()``.
+    """
     extra_nouns = load_proper_nouns(proper_nouns_path)
-    violations = check_spec(spec_root, workers=workers, proper_nouns_path=proper_nouns_path)
+    if violations is None:
+        violations = check_spec(spec_root, workers=workers, proper_nouns_path=proper_nouns_path)
     if not violations:
         return 0, 0
 
@@ -362,6 +368,7 @@ def main(argv=None):
             spec_root,
             workers=args.workers,
             proper_nouns_path=args.proper_nouns,
+            violations=violations,
         )
         print(f'Fixed {headings_fixed} heading(s) in {files_fixed} file(s).')
     else:

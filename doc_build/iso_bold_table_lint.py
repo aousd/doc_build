@@ -61,7 +61,7 @@ class Violation:
     header_text: str         # raw source text of the header row
     non_bold_cells: List[str]  # cell texts that are not bold
 
-    def format(self, display_path: Optional[Path] = None) -> str:
+    def format(self, *, display_path: Optional[Path] = None) -> str:
         path = display_path if display_path is not None else self.file
         cells_str = ', '.join(f'"{c.strip()}"' for c in self.non_bold_cells)
         return (
@@ -276,9 +276,15 @@ def fix_file(path: Path, violations: Optional[List[Violation]] = None) -> int:
 def fix_spec(
     spec_root: Path,
     workers: int = DEFAULT_WORKERS,
+    violations: Optional[List[Violation]] = None,
 ) -> Tuple[int, int]:
-    """Fix all violations under *spec_root*.  Returns (files_fixed, rows_fixed)."""
-    violations = check_spec(spec_root, workers=workers)
+    """Fix all violations under *spec_root*.  Returns (files_fixed, rows_fixed).
+
+    If *violations* is provided, skips the check pass and fixes those
+    directly — useful when the caller already ran ``check_spec()``.
+    """
+    if violations is None:
+        violations = check_spec(spec_root, workers=workers)
     if not violations:
         return 0, 0
 
@@ -348,7 +354,7 @@ def main(argv=None):
         print(report)
         print()
 
-        files_fixed, rows_fixed = fix_spec(spec_root, workers=args.workers)
+        files_fixed, rows_fixed = fix_spec(spec_root, workers=args.workers, violations=violations)
         print(f'Fixed {rows_fixed} header row(s) in {files_fixed} file(s).')
     else:
         violations = check_spec(spec_root, workers=args.workers)

@@ -989,7 +989,7 @@ class DocBuilder:
         log(report)
 
         files_fixed, headings_fixed = fix_spec(
-            spec_root, proper_nouns_path=proper_nouns,
+            spec_root, proper_nouns_path=proper_nouns, violations=violations,
         )
         log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
 
@@ -1018,7 +1018,7 @@ class DocBuilder:
         report = format_report(violations, spec_root=spec_root)
         log(report)
 
-        files_fixed, rows_fixed = fix_spec(spec_root)
+        files_fixed, rows_fixed = fix_spec(spec_root, violations=violations)
         log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
 
     def iso_lint_all(self, args):
@@ -1081,12 +1081,12 @@ class DocBuilder:
             ("heading sentence case", "No heading case violations found.",
              lambda: heading_check(spec_root, proper_nouns_path=proper_nouns),
              lambda vs: heading_report(vs, spec_root=spec_root),
-             lambda: heading_fix(spec_root, proper_nouns_path=proper_nouns),
+             lambda vs: heading_fix(spec_root, proper_nouns_path=proper_nouns, violations=vs),
              lambda f, n: f"Fixed {n} heading(s) in {f} file(s)."),
             ("bold table headers", "No bold-table-header violations found.",
              lambda: bold_check(spec_root),
              lambda vs: bold_report(vs, spec_root=spec_root),
-             lambda: bold_fix(spec_root),
+             lambda vs: bold_fix(spec_root, violations=vs),
              lambda f, n: f"Fixed {n} header row(s) in {f} file(s)."),
         ]
 
@@ -1095,7 +1095,7 @@ class DocBuilder:
             violations = check()
             if violations:
                 log(report_fn(violations))
-                files_fixed, items_fixed = fix()
+                files_fixed, items_fixed = fix(violations)
                 log(summary_fn(files_fixed, items_fixed))
             else:
                 log(ok_msg)

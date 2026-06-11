@@ -58,7 +58,7 @@ class Violation:
     # Non-blank source lines between the heading and the first subclause.
     # Each entry is (1-based line number, raw line content).
 
-    def format(self, context: int = DEFAULT_CONTEXT_LINES, display_path: Optional[Path] = None) -> str:
+    def format(self, *, context: int = DEFAULT_CONTEXT_LINES, display_path: Optional[Path] = None) -> str:
         """Return a human-readable description of the violation."""
         path = display_path if display_path is not None else self.file
         h_marker = '#' * self.heading_level
@@ -68,8 +68,7 @@ class Violation:
 
         lines = [
             f"{path}:{self.heading_lineno}: "
-            f"{h_marker} \"{self.heading_text}\" "
-            # f"has text before its first subclause",
+            f"{h_marker} \"{self.heading_text}\"",
         ]
         for lineno, content in shown:
             lines.append(f"  │ {lineno:5d}: {content}")
