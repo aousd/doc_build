@@ -35,29 +35,17 @@ import json
 import re
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
-
-try:
-    from doc_build.filters.pandocfilters import stringify
-except ImportError:
-    from filters.pandocfilters import stringify
 
 from doc_build.iso_lint_utils import (
     DEFAULT_WORKERS,
     collect_md_files,
     get_sourcepos,
+    run_parallel_check,
+    stringify,
     unwrap_sourcepos_spans,
-)
-
-# Regex matching a pipe-table separator row:  |---|---|  or  |:---:|---:|
-_SEPARATOR_RE = re.compile(
-    r'^\s*\|'           # leading pipe (optional whitespace)
-    r'[\s:_-]+'         # first cell: dashes, colons, spaces
-    r'(\|[\s:_-]+)*'    # subsequent cells
-    r'\|?\s*$'          # trailing pipe (optional)
 )
 
 
@@ -73,10 +61,11 @@ class Violation:
     header_text: str         # raw source text of the header row
     non_bold_cells: List[str]  # cell texts that are not bold
 
-    def format(self) -> str:
+    def format(self, display_path: Optional[Path] = None) -> str:
+        path = display_path if display_path is not None else self.file
         cells_str = ', '.join(f'"{c.strip()}"' for c in self.non_bold_cells)
         return (
-            f"{self.file}:{self.lineno}: {self.header_text.strip()}\n"
+            f"{path}:{self.lineno}: {self.header_text.strip()}\n"
             f"  non-bold cells: {cells_str}"
         )
 
@@ -187,24 +176,17 @@ def check_spec(
     """Walk *spec_root* recursively and return all violations in .md files."""
     md_files = collect_md_files(spec_root)
 
-    all_violations: List[Violation] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(check_file, p): p for p in md_files}
-        for future in as_completed(futures):
-            all_violations.extend(future.result())
-
-    all_violations.sort(key=lambda v: (str(v.file), v.lineno))
-    return all_violations
+    return run_parallel_check(
+        md_files,
+        check_fn=check_file,
+        sort_key=lambda v: (str(v.file), v.lineno),
+        workers=workers,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Source-level fix
 # ---------------------------------------------------------------------------
-
-def _is_separator_line(line: str) -> bool:
-    """Return True if *line* is a pipe-table separator row."""
-    return bool(_SEPARATOR_RE.match(line))
-
 
 def _bold_header_row(line: str) -> str:
     """Wrap non-bold, non-code cells in a pipe-table header row with **…**.
@@ -212,6 +194,11 @@ def _bold_header_row(line: str) -> str:
     Splits the line by ``|``, processes each cell, and reassembles.
     Cells that are already bold (``**…**``) or are code spans (``` `…` ```)
     are left unchanged.  Empty/whitespace-only cells are left unchanged.
+
+    Note: partially bold cells (e.g. ``| **Name** extra |``) are treated
+    as not bold — the whole cell text gets wrapped.  This is intentional:
+    partial bold in a header cell is almost certainly a formatting error,
+    and wrapping the full cell produces the correct result.
     """
     # Split preserving the pipe delimiters.  A typical header row:
     #   "| Name | Type | Description |"
@@ -273,14 +260,11 @@ def fix_file(path: Path, violations: Optional[List[Violation]] = None) -> int:
         idx = lineno - 1
         if idx < 0 or idx >= len(lines):
             continue
-        original = lines[idx]
-        newline_suffix = ''
-        if original.endswith('\n'):
-            newline_suffix = '\n'
-            original = original[:-1]
+        original = lines[idx].rstrip('\n')
+        trailing = lines[idx][len(original):]
         bolded = _bold_header_row(original)
         if bolded != original:
-            lines[idx] = bolded + newline_suffix
+            lines[idx] = bolded + trailing
             fixed += 1
 
     if fixed:
@@ -335,13 +319,7 @@ def format_report(
     for rel_path, file_violations in by_file.items():
         block_lines = [str(rel_path)]
         for v in file_violations:
-            display_v = Violation(
-                file=rel_path,
-                lineno=v.lineno,
-                header_text=v.header_text,
-                non_bold_cells=v.non_bold_cells,
-            )
-            block_lines.append(display_v.format())
+            block_lines.append(v.format(display_path=rel_path))
             total += 1
         sections.append('\n'.join(block_lines))
 
@@ -389,19 +367,7 @@ def main(argv=None):
         print(report)
         print()
 
-        # Group and fix.
-        by_file: dict = {}
-        for v in violations:
-            by_file.setdefault(v.file, []).append(v)
-
-        files_fixed = 0
-        rows_fixed = 0
-        for file_path, file_violations in by_file.items():
-            n = fix_file(file_path, file_violations)
-            if n:
-                files_fixed += 1
-                rows_fixed += n
-
+        files_fixed, rows_fixed = fix_spec(spec_root, workers=args.workers)
         print(f'Fixed {rows_fixed} header row(s) in {files_fixed} file(s).')
     else:
         violations = check_spec(spec_root, workers=args.workers)

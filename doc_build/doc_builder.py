@@ -972,7 +972,7 @@ class DocBuilder:
 
     def heading_case_fix(self, args):
         from doc_build.iso_heading_case_lint import (
-            check_spec, fix_file, format_report, load_proper_nouns,
+            check_spec, fix_spec, format_report,
         )
 
         spec_root = self.get_specification_root()
@@ -988,19 +988,9 @@ class DocBuilder:
         report = format_report(violations, spec_root=spec_root)
         log(report)
 
-        extra_nouns = load_proper_nouns(proper_nouns)
-        by_file: dict = {}
-        for v in violations:
-            by_file.setdefault(v.file, []).append(v)
-
-        files_fixed = 0
-        headings_fixed = 0
-        for file_path, file_violations in by_file.items():
-            n = fix_file(file_path, file_violations, extra_nouns)
-            if n:
-                files_fixed += 1
-                headings_fixed += n
-
+        files_fixed, headings_fixed = fix_spec(
+            spec_root, proper_nouns_path=proper_nouns,
+        )
         log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
 
     def bold_table_lint(self, args):
@@ -1016,7 +1006,7 @@ class DocBuilder:
             log("No bold-table-header violations found.")
 
     def bold_table_fix(self, args):
-        from doc_build.iso_bold_table_lint import check_spec, fix_file, format_report
+        from doc_build.iso_bold_table_lint import check_spec, fix_spec, format_report
 
         spec_root = self.get_specification_root()
         log(f"Fixing bold table headers in {spec_root} ...")
@@ -1028,138 +1018,87 @@ class DocBuilder:
         report = format_report(violations, spec_root=spec_root)
         log(report)
 
-        by_file: dict = {}
-        for v in violations:
-            by_file.setdefault(v.file, []).append(v)
-
-        files_fixed = 0
-        rows_fixed = 0
-        for file_path, file_violations in by_file.items():
-            n = fix_file(file_path, file_violations)
-            if n:
-                files_fixed += 1
-                rows_fixed += n
-
+        files_fixed, rows_fixed = fix_spec(spec_root)
         log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
 
     def iso_lint_all(self, args):
         """Run all three ISO linters: clause structure, heading case, bold table headers."""
-        failed = False
-
-        # 1. Clause structure
         from doc_build.iso_clause_lint import (
             check_spec as clause_check, format_report as clause_report,
         )
-        spec_root = self.get_specification_root()
-        log(f"Checking ISO clause structure in {spec_root} ...")
-        clause_violations = clause_check(spec_root)
-        report = clause_report(clause_violations, context=getattr(args, 'context', 5), spec_root=spec_root)
-        if report:
-            log(report)
-            failed = True
-        else:
-            log("No ISO clause structure violations found.")
-
-        # 2. Heading sentence case
         from doc_build.iso_heading_case_lint import (
             check_spec as heading_check, format_report as heading_report,
         )
-        proper_nouns = getattr(args, 'proper_nouns', None)
-        if proper_nouns is None:
-            proper_nouns = self.get_heading_proper_nouns()
-        log(f"\nChecking heading sentence case in {spec_root} ...")
-        heading_violations = heading_check(spec_root, proper_nouns_path=proper_nouns)
-        report = heading_report(heading_violations, spec_root=spec_root)
-        if report:
-            log(report)
-            failed = True
-        else:
-            log("No heading case violations found.")
-
-        # 3. Bold table headers
         from doc_build.iso_bold_table_lint import (
             check_spec as bold_check, format_report as bold_report,
         )
-        log(f"\nChecking bold table headers in {spec_root} ...")
-        bold_violations = bold_check(spec_root)
-        report = bold_report(bold_violations, spec_root=spec_root)
-        if report:
-            log(report)
-            failed = True
-        else:
-            log("No bold-table-header violations found.")
+
+        spec_root = self.get_specification_root()
+        proper_nouns = getattr(args, 'proper_nouns', None)
+        if proper_nouns is None:
+            proper_nouns = self.get_heading_proper_nouns()
+        context = getattr(args, 'context', 5)
+
+        linters = [
+            ("ISO clause structure", "No ISO clause structure violations found.",
+             lambda: clause_report(clause_check(spec_root), context=context, spec_root=spec_root)),
+            ("heading sentence case", "No heading case violations found.",
+             lambda: heading_report(heading_check(spec_root, proper_nouns_path=proper_nouns), spec_root=spec_root)),
+            ("bold table headers", "No bold-table-header violations found.",
+             lambda: bold_report(bold_check(spec_root), spec_root=spec_root)),
+        ]
+
+        failed = False
+        for label, ok_msg, run in linters:
+            log(f"\nChecking {label} in {spec_root} ...")
+            report = run()
+            if report:
+                log(report)
+                failed = True
+            else:
+                log(ok_msg)
 
         if failed:
             sys.exit(1)
 
     def iso_fix_all(self, args):
-        """Run all three ISO fixers: heading case and bold table headers (clause structure is lint-only)."""
-        spec_root = self.get_specification_root()
-
-        # 1. Heading sentence case
+        """Auto-fix heading case and bold table headers across the spec."""
         from doc_build.iso_heading_case_lint import (
-            check_spec as heading_check, fix_file as heading_fix,
-            format_report as heading_report, load_proper_nouns,
+            check_spec as heading_check, fix_spec as heading_fix,
+            format_report as heading_report,
         )
+        from doc_build.iso_bold_table_lint import (
+            check_spec as bold_check, fix_spec as bold_fix,
+            format_report as bold_report,
+        )
+
+        spec_root = self.get_specification_root()
         proper_nouns = getattr(args, 'proper_nouns', None)
         if proper_nouns is None:
             proper_nouns = self.get_heading_proper_nouns()
-        log(f"Fixing heading sentence case in {spec_root} ...")
-        heading_violations = heading_check(spec_root, proper_nouns_path=proper_nouns)
-        if heading_violations:
-            report = heading_report(heading_violations, spec_root=spec_root)
-            log(report)
-            extra_nouns = load_proper_nouns(proper_nouns)
-            by_file: dict = {}
-            for v in heading_violations:
-                by_file.setdefault(v.file, []).append(v)
-            files_fixed = 0
-            headings_fixed = 0
-            for file_path, file_violations in by_file.items():
-                n = heading_fix(file_path, file_violations, extra_nouns)
-                if n:
-                    files_fixed += 1
-                    headings_fixed += n
-            log(f"Fixed {headings_fixed} heading(s) in {files_fixed} file(s).")
-        else:
-            log("No heading case violations found.")
 
-        # 2. Bold table headers
-        from doc_build.iso_bold_table_lint import (
-            check_spec as bold_check, fix_file as bold_fix,
-            format_report as bold_report,
-        )
-        log(f"\nFixing bold table headers in {spec_root} ...")
-        bold_violations = bold_check(spec_root)
-        if bold_violations:
-            report = bold_report(bold_violations, spec_root=spec_root)
-            log(report)
-            by_file = {}
-            for v in bold_violations:
-                by_file.setdefault(v.file, []).append(v)
-            files_fixed = 0
-            rows_fixed = 0
-            for file_path, file_violations in by_file.items():
-                n = bold_fix(file_path, file_violations)
-                if n:
-                    files_fixed += 1
-                    rows_fixed += n
-            log(f"Fixed {rows_fixed} header row(s) in {files_fixed} file(s).")
-        else:
-            log("No bold-table-header violations found.")
+        fixers = [
+            ("heading sentence case", "No heading case violations found.",
+             lambda: heading_check(spec_root, proper_nouns_path=proper_nouns),
+             lambda vs: heading_report(vs, spec_root=spec_root),
+             lambda: heading_fix(spec_root, proper_nouns_path=proper_nouns),
+             lambda f, n: f"Fixed {n} heading(s) in {f} file(s)."),
+            ("bold table headers", "No bold-table-header violations found.",
+             lambda: bold_check(spec_root),
+             lambda vs: bold_report(vs, spec_root=spec_root),
+             lambda: bold_fix(spec_root),
+             lambda f, n: f"Fixed {n} header row(s) in {f} file(s)."),
+        ]
 
-        # 3. Clause structure (lint-only, no auto-fix)
-        from doc_build.iso_clause_lint import (
-            check_spec as clause_check, format_report as clause_report,
-        )
-        log(f"\nChecking ISO clause structure in {spec_root} ...")
-        clause_violations = clause_check(spec_root)
-        report = clause_report(clause_violations, context=getattr(args, 'context', 5), spec_root=spec_root)
-        if report:
-            log(report)
-            log("\nNote: clause structure violations require manual editing.")
-        else:
-            log("No ISO clause structure violations found.")
+        for label, ok_msg, check, report_fn, fix, summary_fn in fixers:
+            log(f"\nFixing {label} in {spec_root} ...")
+            violations = check()
+            if violations:
+                log(report_fn(violations))
+                files_fixed, items_fixed = fix()
+                log(summary_fn(files_fixed, items_fixed))
+            else:
+                log(ok_msg)
 
     def export_git_archive(self, args):
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -1641,7 +1580,7 @@ class DocBuilder:
     def make_iso_fix_all_parser(self, subparsers):
         p = subparsers.add_parser(
             "iso_fix_all",
-            help="Run all ISO fixers (heading case, bold table headers) and lint clause structure",
+            help="Auto-fix heading case and bold table headers across the spec",
         )
         p.add_argument(
             "--proper-nouns",

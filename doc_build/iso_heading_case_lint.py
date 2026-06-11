@@ -37,12 +37,10 @@ import json
 import re
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
-from filters.pandocfilters import stringify
 from filters.heading_case import (
     heading_needs_conversion,
     is_proper_noun,
@@ -54,6 +52,8 @@ from doc_build.iso_lint_utils import (
     DEFAULT_WORKERS,
     collect_md_files,
     get_sourcepos,
+    run_parallel_check,
+    stringify,
 )
 
 
@@ -71,11 +71,12 @@ class Violation:
     suggested_text: str
     non_sentence_words: List[str] = field(default_factory=list)
 
-    def format(self) -> str:
+    def format(self, display_path: Optional[Path] = None) -> str:
+        path = display_path if display_path is not None else self.file
         marker = '#' * self.level
         words_str = ', '.join(f'"{w}"' for w in self.non_sentence_words)
         lines = [
-            f"{self.file}:{self.lineno}: "
+            f"{path}:{self.lineno}: "
             f"{marker} \"{self.heading_text}\"",
             f"  suggested: {marker} \"{self.suggested_text}\"",
         ]
@@ -90,7 +91,6 @@ class Violation:
 
 def _find_non_sentence_words(inlines: list, extra_nouns: Set[str]) -> List[str]:
     """Return words that are capitalised but not proper nouns (skipping the first word)."""
-    import re
     words = []
     text = stringify(inlines)
     all_words = [w for w in re.split(r'\s+', text) if w]
@@ -156,17 +156,14 @@ def check_spec(
 ) -> List[Violation]:
     """Walk *spec_root* recursively and return all violations in .md files."""
     extra_nouns = load_proper_nouns(proper_nouns_path)
-
     md_files = collect_md_files(spec_root)
 
-    all_violations: List[Violation] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(check_file, p, extra_nouns): p for p in md_files}
-        for future in as_completed(futures):
-            all_violations.extend(future.result())
-
-    all_violations.sort(key=lambda v: (str(v.file), v.lineno))
-    return all_violations
+    return run_parallel_check(
+        md_files,
+        check_fn=lambda p: check_file(p, extra_nouns),
+        sort_key=lambda v: (str(v.file), v.lineno),
+        workers=workers,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +183,7 @@ def _sentence_case_text(text: str, extra_nouns: Set[str]) -> str:
     """
     # Build a set of character positions that are inside code spans or
     # link URLs — these must not be modified.
-    protected = set()
+    protected: Set[int] = set()
     for m in re.finditer(r'`+.+?`+', text):
         protected.update(range(m.start(), m.end()))
     for m in re.finditer(r'\]\([^)]*\)', text):
@@ -196,8 +193,9 @@ def _sentence_case_text(text: str, extra_nouns: Set[str]) -> str:
     result = list(text)
 
     for m in re.finditer(r"[A-Za-z][A-Za-z0-9'_-]*", text):
+        word_range = range(m.start(), m.end())
         # Skip words inside protected ranges (code spans, link URLs).
-        if any(i in protected for i in range(m.start(), m.end())):
+        if not protected.isdisjoint(word_range):
             first_word_seen = True
             continue
 
@@ -258,14 +256,11 @@ def fix_file(
         idx = lineno - 1
         if idx < 0 or idx >= len(lines):
             continue
-        original = lines[idx]
-        newline_suffix = ''
-        if original.endswith('\n'):
-            newline_suffix = '\n'
-            original = original[:-1]
+        original = lines[idx].rstrip('\n')
+        trailing = lines[idx][len(original):]
         converted = _sentence_case_heading_line(original, extra_nouns)
         if converted != original:
-            lines[idx] = converted + newline_suffix
+            lines[idx] = converted + trailing
             fixed += 1
 
     if fixed:
@@ -322,15 +317,7 @@ def format_report(
     for rel_path, file_violations in by_file.items():
         block_lines = [str(rel_path)]
         for v in file_violations:
-            display_v = Violation(
-                file=rel_path,
-                lineno=v.lineno,
-                level=v.level,
-                heading_text=v.heading_text,
-                suggested_text=v.suggested_text,
-                non_sentence_words=v.non_sentence_words,
-            )
-            block_lines.append(display_v.format())
+            block_lines.append(v.format(display_path=rel_path))
             total += 1
         sections.append('\n'.join(block_lines))
 
@@ -389,19 +376,11 @@ def main(argv=None):
         print(report)
         print()
 
-        extra_nouns = load_proper_nouns(args.proper_nouns)
-        by_file: dict = {}
-        for v in violations:
-            by_file.setdefault(v.file, []).append(v)
-
-        files_fixed = 0
-        headings_fixed = 0
-        for file_path, file_violations in by_file.items():
-            n = fix_file(file_path, file_violations, extra_nouns)
-            if n:
-                files_fixed += 1
-                headings_fixed += n
-
+        files_fixed, headings_fixed = fix_spec(
+            spec_root,
+            workers=args.workers,
+            proper_nouns_path=args.proper_nouns,
+        )
         print(f'Fixed {headings_fixed} heading(s) in {files_fixed} file(s).')
     else:
         violations = check_spec(

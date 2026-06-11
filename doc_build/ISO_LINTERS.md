@@ -9,14 +9,15 @@ subcommand.  All accept a directory (scanned recursively) or a single
 
 ```sh
 # Lint only (exits non-zero on any violation)
-pixi run python -m doc_build.doc_builder iso_clause_lint_all
+pixi run python -m doc_build.doc_builder iso_lint_all
 
-# Fix what can be auto-fixed, then lint the rest
+# Fix what can be auto-fixed
 pixi run python -m doc_build.doc_builder iso_fix_all
 ```
 
-`iso_fix_all` auto-fixes heading case and bold table headers, then runs
-the clause structure linter (which requires manual editing).
+`iso_fix_all` auto-fixes heading case and bold table headers.  Run
+`iso_lint_all` afterwards to check for clause structure issues
+(which require manual editing).
 
 ## Heading sentence case
 
@@ -77,7 +78,7 @@ This linter has no auto-fix; violations require manual editing.
 All linters are also available as subcommands of the doc builder:
 
 ```sh
-pixi run python -m doc_build.doc_builder iso_clause_lint_all
+pixi run python -m doc_build.doc_builder iso_lint_all
 pixi run python -m doc_build.doc_builder iso_fix_all
 
 pixi run python -m doc_build.doc_builder heading_case_lint
@@ -101,7 +102,7 @@ Add a lint job to your workflow file (`.github/workflows/*.yml`):
           pixi-version: v0.59.0
 
       - name: ISO compliance checks
-        run: pixi run python -m doc_build.doc_builder iso_clause_lint_all
+        run: pixi run python -m doc_build.doc_builder iso_lint_all
 ```
 
 Or run the linters individually:

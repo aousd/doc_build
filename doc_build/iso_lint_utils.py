@@ -5,10 +5,26 @@ and ``iso_clause_lint``.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
-# Maximum number of parallel Pandoc subprocesses used by check_spec().
+try:
+    from doc_build.filters.pandocfilters import stringify
+except ImportError:
+    from filters.pandocfilters import stringify
+
+# Re-export so linters can ``from doc_build.iso_lint_utils import stringify``.
+__all__ = [
+    "DEFAULT_WORKERS",
+    "collect_md_files",
+    "get_sourcepos",
+    "run_parallel_check",
+    "stringify",
+    "unwrap_sourcepos_spans",
+]
+
+# Maximum number of parallel Pandoc subprocesses.
 DEFAULT_WORKERS = 8
 
 
@@ -27,6 +43,27 @@ def collect_md_files(path: Path) -> List[Path]:
             if fname.endswith('.md'):
                 md_files.append(Path(dirpath) / fname)
     return md_files
+
+
+def run_parallel_check(
+    md_files: List[Path],
+    check_fn: Callable,
+    sort_key: Callable,
+    workers: int = DEFAULT_WORKERS,
+) -> list:
+    """Run *check_fn* on each file in parallel and return sorted results.
+
+    *check_fn* is called with a single ``Path`` argument and must return
+    a list of violation objects.  Results are concatenated, sorted by
+    *sort_key*, and returned.
+    """
+    all_violations: list = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(check_fn, p): p for p in md_files}
+        for future in as_completed(futures):
+            all_violations.extend(future.result())
+    all_violations.sort(key=sort_key)
+    return all_violations
 
 
 def get_sourcepos(attr: list) -> Optional[int]:

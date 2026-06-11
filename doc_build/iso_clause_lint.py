@@ -23,17 +23,16 @@ Usage from the command line:
 import json
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
-
-from filters.pandocfilters import stringify
 
 from doc_build.iso_lint_utils import (
     DEFAULT_WORKERS,
     collect_md_files,
     get_sourcepos,
+    run_parallel_check,
+    stringify,
 )
 
 # How many non-blank body lines to show as context in a report.
@@ -58,15 +57,16 @@ class Violation:
     # Non-blank source lines between the heading and the first subclause.
     # Each entry is (1-based line number, raw line content).
 
-    def format(self, context: int = DEFAULT_CONTEXT_LINES) -> str:
+    def format(self, context: int = DEFAULT_CONTEXT_LINES, display_path: Optional[Path] = None) -> str:
         """Return a human-readable description of the violation."""
+        path = display_path if display_path is not None else self.file
         h_marker = '#' * self.heading_level
         sub_marker = '#' * self.first_sub_level
         shown = self.body_lines[:context]
         remainder = len(self.body_lines) - len(shown)
 
         lines = [
-            f"{self.file}:{self.heading_lineno}: "
+            f"{path}:{self.heading_lineno}: "
             f"{h_marker} \"{self.heading_text}\" "
             # f"has text before its first subclause",
         ]
@@ -190,14 +190,12 @@ def check_spec(
     """
     md_files = collect_md_files(spec_root)
 
-    all_violations: List[Violation] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(check_file, p): p for p in md_files}
-        for future in as_completed(futures):
-            all_violations.extend(future.result())
-
-    all_violations.sort(key=lambda v: (str(v.file), v.heading_lineno))
-    return all_violations
+    return run_parallel_check(
+        md_files,
+        check_fn=check_file,
+        sort_key=lambda v: (str(v.file), v.heading_lineno),
+        workers=workers,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,17 +226,7 @@ def format_report(
     for rel_path, file_violations in by_file.items():
         block_lines = [f'{rel_path}']
         for v in file_violations:
-            display_v = Violation(
-                file=rel_path,
-                heading_lineno=v.heading_lineno,
-                heading_level=v.heading_level,
-                heading_text=v.heading_text,
-                first_sub_lineno=v.first_sub_lineno,
-                first_sub_level=v.first_sub_level,
-                first_sub_text=v.first_sub_text,
-                body_lines=v.body_lines,
-            )
-            block_lines.append(display_v.format(context=context))
+            block_lines.append(v.format(context=context, display_path=rel_path))
             total += 1
         sections.append('\n'.join(block_lines))
 
