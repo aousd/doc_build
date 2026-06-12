@@ -254,9 +254,9 @@ class DocBuilder:
                 )
         args.output.mkdir(parents=True, exist_ok=True)
 
-        if args.heading_case_lint:
+        if getattr(args, 'heading_case_lint', False):
             from doc_build.iso_heading_case_lint import check_spec, format_report
-            pn_path = args.heading_proper_nouns or self.get_heading_proper_nouns()
+            pn_path = getattr(args, 'heading_proper_nouns', None) or self.get_heading_proper_nouns()
             spec_root = self.get_specification_root()
             log(f"\tChecking heading sentence case in {spec_root} ...")
             violations = check_spec(spec_root, proper_nouns_path=pn_path)
@@ -346,7 +346,7 @@ class DocBuilder:
         dejavufontpath = Path(os.path.relpath(fonts_dir, artifacts_dir)).as_posix() + "/"
 
         all_filters = self.get_doc_build_filters()
-        if not args.iso_xrefs:
+        if not getattr(args, 'iso_xrefs', False):
             iso_filter = self.get_filter("iso_xrefs")
             all_filters = [f for f in all_filters if f != iso_filter]
         doc_build_filters = []
@@ -414,7 +414,7 @@ class DocBuilder:
                 log("\tAdding Draft Watermark...")
                 shared_command.extend(["-V", "draft=true"])
 
-            if args.iso_xrefs:
+            if getattr(args, 'iso_xrefs', False):
                 shared_command.extend(["-M", f"ISO_CLAUSE_MAP={self.get_iso_clause_map()}"])
             if from_pretty is not None and to_pretty is not None:
                 shared_command.extend([
@@ -497,7 +497,7 @@ class DocBuilder:
                     f"--template={latex_template}",
                 ] + pdf_extra
 
-                if not args.keep_pdf_latex:
+                if not getattr(args, "keep_pdf_latex", False):
                     # Standard path: pandoc pipes directly to tectonic via stdin.
                     log(f"\tBuilding PDF to {pdf}...")
                     pandoc(
