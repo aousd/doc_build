@@ -90,9 +90,26 @@ $endif$
   {2.5ex plus .2ex minus .2ex}      % Vertical space before the title
   {0.5em}                           % Vertical space after the title (or horizontal for run-in)
 
-% Fix the potential TOC issue
+% Dynamic TOC number widths: measure each section number's natural width
+% and add a small gap, instead of relying on LaTeX's fixed-width columns
+% that overflow with double-digit numbers (issue #97).
+% \numberline normally typesets into a fixed-width \@tempdima box; this
+% redefinition uses the number's natural width + 0.5em padding so "1" and
+% "12.2.1" both get exactly the space they need.
 \makeatletter
-\newcommand{\l@subsubparagraph}{\@dottedtocline{6}{7em}{4em}}
+\renewcommand{\numberline}[1]{%
+  \def\@tempa{#1}%
+  \ifx\@tempa\empty\else
+    \settowidth{\@tempdima}{#1}%
+    \hb@xt@\dimexpr\@tempdima+0.5em\relax{#1\hfil}%
+  \fi}
+
+% TOC entries for the custom deep levels that LaTeX doesn't define.
+% Indents are relative to the left margin; numwidth is ignored now that
+% \numberline auto-sizes, but \@dottedtocline still needs a placeholder.
+\renewcommand{\l@paragraph}{\@dottedtocline{4}{7.0em}{4.1em}}
+\renewcommand{\l@subparagraph}{\@dottedtocline{5}{10em}{5em}}
+\newcommand{\l@subsubparagraph}{\@dottedtocline{6}{12em}{5.5em}}
 % hyperref uses \toclevel@<cmd> to determine PDF bookmark depth.
 % \titleclass does not set this, so without it bookmarks default to level 0
 % (top-level), causing H6 to appear as a root item and nesting all following
@@ -102,6 +119,39 @@ $endif$
 
 \setcounter{secnumdepth}{6}
 \setcounter{tocdepth}{6}
+
+% Allow deep list nesting (up to 9 levels).  Default LaTeX limits itemize
+% and enumerate to 4 levels, which is insufficient for deeply nested
+% Markdown lists.  The enumitem package raises the limit and lets us define
+% labels for the extra levels.
+\usepackage{enumitem}
+\setlistdepth{9}
+
+% Redefine itemize and enumerate to support 9 nesting levels.
+% \renewlist recreates the environment with the new max depth, defining
+% the internal counters and label hooks that LaTeX normally caps at 4.
+\renewlist{itemize}{itemize}{9}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textasteriskcentered}
+\setlist[itemize,4]{label=\textperiodcentered}
+\setlist[itemize,5]{label=\textopenbullet}
+\setlist[itemize,6]{label=\textendash}
+\setlist[itemize,7]{label=\textasteriskcentered}
+\setlist[itemize,8]{label=\textperiodcentered}
+\setlist[itemize,9]{label=\textbullet}
+
+% Same for enumerate: extend to 9 levels with cycling labels.
+\renewlist{enumerate}{enumerate}{9}
+\setlist[enumerate,1]{label=\arabic*.}
+\setlist[enumerate,2]{label=\alph*.}
+\setlist[enumerate,3]{label=\roman*.}
+\setlist[enumerate,4]{label=\Alph*.}
+\setlist[enumerate,5]{label=\arabic*.}
+\setlist[enumerate,6]{label=\alph*.}
+\setlist[enumerate,7]{label=\roman*.}
+\setlist[enumerate,8]{label=\Alph*.}
+\setlist[enumerate,9]{label=\arabic*.}
 
 % adjust the title page style
 \usepackage{fontspec}

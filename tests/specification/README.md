@@ -10,6 +10,7 @@ It is also a quick testbed for functionality.
 
 1. [Inlined](Inlined.md)
 2. [Header Levels](headers_levels.md)
+3. [TOC and Lists Test](toc_and_lists_test.md)
 
 # Math Tests
 
