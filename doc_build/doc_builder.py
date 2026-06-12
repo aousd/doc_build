@@ -956,9 +956,7 @@ class DocBuilder:
         from doc_build.iso_heading_case_lint import check_spec, format_report
 
         spec_root = self.get_specification_root()
-        proper_nouns = getattr(args, 'proper_nouns', None)
-        if proper_nouns is None:
-            proper_nouns = self.get_heading_proper_nouns()
+        proper_nouns = args.proper_nouns or self.get_heading_proper_nouns()
         log(f"Checking heading sentence case in {spec_root} ...")
         violations = check_spec(
             spec_root,
@@ -976,9 +974,7 @@ class DocBuilder:
         )
 
         spec_root = self.get_specification_root()
-        proper_nouns = getattr(args, 'proper_nouns', None)
-        if proper_nouns is None:
-            proper_nouns = self.get_heading_proper_nouns()
+        proper_nouns = args.proper_nouns or self.get_heading_proper_nouns()
         log(f"Fixing heading sentence case in {spec_root} ...")
         violations = check_spec(spec_root, proper_nouns_path=proper_nouns)
         if not violations:
@@ -1034,14 +1030,11 @@ class DocBuilder:
         )
 
         spec_root = self.get_specification_root()
-        proper_nouns = getattr(args, 'proper_nouns', None)
-        if proper_nouns is None:
-            proper_nouns = self.get_heading_proper_nouns()
-        context = getattr(args, 'context', 5)
+        proper_nouns = args.proper_nouns or self.get_heading_proper_nouns()
 
         linters = [
             ("ISO clause structure", "No ISO clause structure violations found.",
-             lambda: clause_report(clause_check(spec_root), context=context, spec_root=spec_root)),
+             lambda: clause_report(clause_check(spec_root), context=args.context, spec_root=spec_root)),
             ("heading sentence case", "No heading case violations found.",
              lambda: heading_report(heading_check(spec_root, proper_nouns_path=proper_nouns), spec_root=spec_root)),
             ("bold table headers", "No bold-table-header violations found.",
@@ -1073,9 +1066,7 @@ class DocBuilder:
         )
 
         spec_root = self.get_specification_root()
-        proper_nouns = getattr(args, 'proper_nouns', None)
-        if proper_nouns is None:
-            proper_nouns = self.get_heading_proper_nouns()
+        proper_nouns = args.proper_nouns or self.get_heading_proper_nouns()
 
         fixers = [
             ("heading sentence case", "No heading case violations found.",
@@ -1573,6 +1564,13 @@ class DocBuilder:
             metavar="YAML",
             help="Path to a YAML file listing additional proper nouns "
                  "(default: iso_heading_proper_nouns.yaml in the builder or spec root)",
+        )
+        p.add_argument(
+            "--context",
+            type=int,
+            default=5,
+            metavar="N",
+            help="Number of body lines to show per clause-structure violation (default: 5)",
         )
         p.set_defaults(func=self.iso_lint_all)
         return p
