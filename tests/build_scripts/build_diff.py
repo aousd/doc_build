@@ -133,6 +133,9 @@ def build_diff(build_html: bool, build_pdf: bool, keep_pdf_latex: bool = False) 
             only=[],
             exclude=[],
             keep_pdf_latex=keep_pdf_latex,
+            heading_case_lint=False,
+            heading_proper_nouns=None,
+            iso_xrefs=False,
         )
 
         print("Running DocBuilder.build_docs() with --diff...")
