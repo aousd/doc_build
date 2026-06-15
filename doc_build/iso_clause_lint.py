@@ -21,21 +21,23 @@ Usage from the command line:
 """
 
 import json
-import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from filters.pandocfilters import stringify
+from doc_build.iso_lint_utils import (
+    DEFAULT_WORKERS,
+    collect_md_files,
+    format_report as _format_report,
+    get_sourcepos,
+    run_parallel_check,
+    stringify,
+)
 
 # How many non-blank body lines to show as context in a report.
 DEFAULT_CONTEXT_LINES = 5
-
-# Maximum number of parallel Pandoc subprocesses used by check_spec().
-DEFAULT_WORKERS = 8
 
 
 # ---------------------------------------------------------------------------
@@ -56,17 +58,17 @@ class Violation:
     # Non-blank source lines between the heading and the first subclause.
     # Each entry is (1-based line number, raw line content).
 
-    def format(self, context: int = DEFAULT_CONTEXT_LINES) -> str:
+    def format(self, *, context: int = DEFAULT_CONTEXT_LINES, display_path: Optional[Path] = None) -> str:
         """Return a human-readable description of the violation."""
+        path = display_path if display_path is not None else self.file
         h_marker = '#' * self.heading_level
         sub_marker = '#' * self.first_sub_level
         shown = self.body_lines[:context]
         remainder = len(self.body_lines) - len(shown)
 
         lines = [
-            f"{self.file}:{self.heading_lineno}: "
-            f"{h_marker} \"{self.heading_text}\" "
-            # f"has text before its first subclause",
+            f"{path}:{self.heading_lineno}: "
+            f"{h_marker} \"{self.heading_text}\"",
         ]
         for lineno, content in shown:
             lines.append(f"  │ {lineno:5d}: {content}")
@@ -77,30 +79,6 @@ class Violation:
             f"(line {self.first_sub_lineno})"
         )
         return '\n'.join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Pandoc AST helpers
-# ---------------------------------------------------------------------------
-
-def _get_sourcepos(attr: list) -> Optional[int]:
-    """Extract the start line number from a Pandoc sourcepos Attr.
-
-    Attr layout: [id, [classes], [[key, value], ...]]
-
-    When Pandoc reads from a file the data-pos value has the form
-    "filepath@startrow:startcol-endrow:endcol"; when reading from stdin it
-    omits the "filepath@" prefix.  Both forms are handled here.
-
-    Returns the start row as a 1-based integer, or None if the attribute is
-    absent.
-    """
-    for key, val in attr[2]:
-        if key == "data-pos":
-            # Strip optional "filepath@" prefix before the row:col range.
-            pos = val.split("@")[-1]
-            return int(pos.split(":")[0])
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +130,7 @@ def check_file(path: Path) -> List[Violation]:
             level: int = block["c"][0]
             attr: list = block["c"][1]
             inlines: list = block["c"][2]
-            lineno: Optional[int] = _get_sourcepos(attr)
+            lineno: Optional[int] = get_sourcepos(attr)
             text: str = stringify(inlines).strip()
 
             # Check for a violation: the previous heading has body content
@@ -205,25 +183,19 @@ def check_spec(
 ) -> List[Violation]:
     """Walk *spec_root* recursively and return all violations in .md files.
 
-    Files are processed in parallel (up to *workers* simultaneous Pandoc
+    *spec_root* may be a single ``.md`` file or a directory.  Files are
+    processed in parallel (up to *workers* simultaneous Pandoc
     subprocesses) for speed, then results are sorted by (file path, line
     number) so that output is stable across runs.
     """
-    md_files: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(spec_root):
-        dirnames.sort()
-        for fname in sorted(filenames):
-            if fname.endswith('.md'):
-                md_files.append(Path(dirpath) / fname)
+    md_files = collect_md_files(spec_root)
 
-    all_violations: List[Violation] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(check_file, p): p for p in md_files}
-        for future in as_completed(futures):
-            all_violations.extend(future.result())
-
-    all_violations.sort(key=lambda v: (str(v.file), v.heading_lineno))
-    return all_violations
+    return run_parallel_check(
+        md_files,
+        check_fn=check_file,
+        sort_key=lambda v: (str(v.file), v.heading_lineno),
+        workers=workers,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -240,39 +212,9 @@ def format_report(
     If *spec_root* is given, file paths are shown relative to it.
     Returns an empty string when there are no violations.
     """
-    if not violations:
-        return ''
-
-    # Group by file for tidier output.
-    by_file: dict = {}
-    for v in violations:
-        rel = v.file.relative_to(spec_root) if spec_root else v.file
-        by_file.setdefault(rel, []).append(v)
-
-    sections: List[str] = []
-    total = 0
-    for rel_path, file_violations in by_file.items():
-        block_lines = [f'{rel_path}']
-        for v in file_violations:
-            display_v = Violation(
-                file=rel_path,
-                heading_lineno=v.heading_lineno,
-                heading_level=v.heading_level,
-                heading_text=v.heading_text,
-                first_sub_lineno=v.first_sub_lineno,
-                first_sub_level=v.first_sub_level,
-                first_sub_text=v.first_sub_text,
-                body_lines=v.body_lines,
-            )
-            block_lines.append(display_v.format(context=context))
-            total += 1
-        sections.append('\n'.join(block_lines))
-
-    file_count = len(by_file)
-    header = (
-        f'{total} violation(s) in {file_count} file(s)\n'
+    return _format_report(
+        violations, "clause structure", spec_root=spec_root, context=context,
     )
-    return header + '\n\n' + '\n\n'.join(sections)
 
 
 # ---------------------------------------------------------------------------
