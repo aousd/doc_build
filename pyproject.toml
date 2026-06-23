@@ -21,13 +21,14 @@ doc_build = { path = ".", editable = true }
 [tool.pixi.tasks]
 build = "python tests/build_scripts/build_docs.py build"
 build-diff = "python tests/build_scripts/build_diff.py"
+feature-test = "python -m unittest discover -s tests/feature -t ."
 
 [tool.pixi.tasks.test]
-    # Convenience command to run both build and build-diff
-    #   ie, `pixi run test` = `pixi run build ; pixi run build-diff`
+    # Convenience command to run feature-test, build, and build-diff
+    #   ie, `pixi run test` = `pixi run feature-test ; pixi run build ; pixi run build-diff`
     # Note that `test` / depends-on tasks cannot be passed extra arguments...
     # (see note below)
-    depends-on = ["build", "build-diff"]
+    depends-on = ["feature-test", "build", "build-diff"]
 
     # NOTE: this cmd is just to cause an error message to print if you try to pass args
     # to `pixi run test`
@@ -36,7 +37,7 @@ build-diff = "python tests/build_scripts/build_diff.py"
     #     pixi run test --keep-pdf-latexn
     # ...will seem to work, but actually the flag is just silently discarded.
     # This command causes the test task to fail in this scenario
-    cmd = "python -c 'import sys; sys.argv[1:] and sys.exit(\"test does not accept extra args; pass them directly to build or build-diff\")'"
+    cmd = "python -c 'import sys; sys.argv[1:] and sys.exit(\"test does not accept extra args; pass them directly to build, build-diff, or feature-test\")'"
 
 [tool.pixi.workspace]
 channels = [
