@@ -80,6 +80,95 @@ class Logger:
 log = Logger()
 
 
+# --- PDF quality gate (aousd/doc_build#100) -------------------------------
+# tectonic reports two classes of rendering defect that doc_build historically
+# either suppressed (Overfull \hbox) or let scroll past unnoticed (Missing
+# character). Both silently degrade the published PDF -- content runs off the
+# right margin, or a glyph is dropped entirely with no error. These helpers
+# surface them, and optionally fail the build.
+_OVERFULL_RE = re.compile(r"Overfull \\hbox \(([0-9.]+)pt too wide\)")
+# Codepoint as printed by tectonic/XeTeX: U+29F5, 0x302, or TeX hex "302.
+_GLYPH_CP_RE = re.compile(r'(?:0x|U\+|")([0-9A-Fa-f]+)')
+
+
+def _report_pdf_diagnostics(
+    overflows,
+    missing_glyphs,
+    *,
+    check_glyphs,
+    check_overflow,
+    overflow_threshold_pt,
+):
+    """Report (and optionally fail on) PDF rendering defects tectonic hides.
+
+    ``overflows`` is a list of ``(pt, line)`` for "Overfull \\hbox (Xpt too
+    wide)" warnings (content past the right text margin). ``missing_glyphs`` is
+    a list of the raw "Missing character"/"could not represent" warning lines
+    (characters silently dropped from the PDF).
+
+    By default a missing glyph FAILS the build (silent, meaning-changing
+    corruption) while margin overflow is only REPORTED -- pass
+    ``check_overflow`` to make overflow fatal too. See aousd/doc_build#100.
+    """
+    over = sorted(
+        ((pt, line) for pt, line in overflows if pt >= overflow_threshold_pt),
+        reverse=True,
+    )
+
+    if over:
+        log(
+            f"\n[doc_build] Right-margin overflow: {len(over)} line(s) exceed the "
+            f"text width by >= {overflow_threshold_pt}pt (worst {over[0][0]:.1f}pt):",
+            file=sys.stderr,
+        )
+        for pt, line in over[:20]:
+            log(f"    {pt:8.2f}pt  {line}", file=sys.stderr)
+        if len(over) > 20:
+            log(f"    ... and {len(over) - 20} more", file=sys.stderr)
+
+    if missing_glyphs:
+        counts = {}
+        for line in missing_glyphs:
+            m = _GLYPH_CP_RE.search(line)
+            key = f"U+{int(m.group(1), 16):04X}" if m else "?"
+            counts[key] = counts.get(key, 0) + 1
+        summary = ", ".join(f"{k} x{v}" for k, v in sorted(counts.items()))
+        log(
+            f"\n[doc_build] Missing glyphs (silently dropped from the PDF): "
+            f"{len(missing_glyphs)} warning(s) [{summary}]",
+            file=sys.stderr,
+        )
+        for line in missing_glyphs[:20]:
+            log(f"    {line}", file=sys.stderr)
+        if len(missing_glyphs) > 20:
+            log(f"    ... and {len(missing_glyphs) - 20} more", file=sys.stderr)
+
+    failures = []
+    if check_glyphs and missing_glyphs:
+        failures.append(
+            f"{len(missing_glyphs)} missing-glyph warning(s) -- characters were "
+            "silently dropped from the PDF"
+        )
+    if check_overflow and over:
+        failures.append(
+            f"{len(over)} line(s) overflow the right margin by "
+            f">= {overflow_threshold_pt}pt"
+        )
+
+    if failures:
+        raise SystemExit(
+            "[doc_build] PDF quality gate failed (aousd/doc_build#100):\n  - "
+            + "\n  - ".join(failures)
+            + "\n(pass --no-check-glyphs and/or omit --check-overflow to "
+            "downgrade these to warnings)"
+        )
+    if over or missing_glyphs:
+        log(
+            "[doc_build] PDF diagnostics reported above (non-fatal).",
+            file=sys.stderr,
+        )
+
+
 class ExecCommand:
     def __init__(self, binary_name):
         if binary := shutil.which(binary_name):
@@ -470,6 +559,8 @@ class DocBuilder:
 
                 def stderr_processor(std_err):
                     lines = std_err.splitlines()
+                    overflows = []  # (pt: float, line: str)
+                    missing_glyphs = []  # raw warning lines
 
                     for line in lines:
                         # Spurious warning: https://github.com/tectonic-typesetting/tectonic/discussions/1192#discussioncomment-9463365
@@ -477,10 +568,10 @@ class DocBuilder:
                             "warning: Trying to include PDF file with version "
                         ):
                             continue
-                        # Can be safely ignored: https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
-                        if line.startswith("warning: texput.") and (
-                            "Overfull " in line or "Underfull " in line
-                        ):
+                        # Underfull boxes are cosmetic (loose inter-word spacing),
+                        # never a margin overflow -- keep ignoring them.
+                        # https://www.overleaf.com/learn/how-to/Understanding_underfull_and_overfull_box_warnings
+                        if "Underfull " in line:
                             continue
                         # Can also be safely ignored
                         if line.startswith("warning: accessing absolute path "):
@@ -490,7 +581,31 @@ class DocBuilder:
                         if line.startswith("warning: warnings were issued"):
                             continue
 
+                        # Overfull \hbox (Xpt too wide): content runs past the right
+                        # text margin. Collect (don't silently drop) so it can be
+                        # reported and optionally gated. See aousd/doc_build#100.
+                        m = _OVERFULL_RE.search(line)
+                        if m:
+                            overflows.append((float(m.group(1)), line))
+                            continue
+                        # A character with no glyph in the chosen font is silently
+                        # omitted from the PDF -- meaning-changing corruption.
+                        if (
+                            "Missing character:" in line
+                            or "could not represent character" in line
+                        ):
+                            missing_glyphs.append(line)
+                            continue
+
                         log(line, file=sys.stderr)
+
+                    _report_pdf_diagnostics(
+                        overflows,
+                        missing_glyphs,
+                        check_glyphs=not args.no_check_glyphs,
+                        check_overflow=args.check_overflow,
+                        overflow_threshold_pt=args.overflow_threshold_pt,
+                    )
 
                 pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
                 latex_cmd_base = shared_command + [
@@ -1416,6 +1531,27 @@ class DocBuilder:
             help="Capture the intermediate LaTeX when building PDF, alongside a "
             "script to recreate the PDF from the .tex (implies tectonic wrapper)",
             action="store_true",
+        )
+        # PDF quality gate (aousd/doc_build#100).
+        build_parser.add_argument(
+            "--no-check-glyphs",
+            help="Do not fail the PDF build when characters are silently dropped "
+                 "(missing-glyph warnings); report them only. Default: fail.",
+            action="store_true",
+        )
+        build_parser.add_argument(
+            "--check-overflow",
+            help="Fail the PDF build when content overflows the right text margin "
+                 "by >= --overflow-threshold-pt. Default: report only.",
+            action="store_true",
+        )
+        build_parser.add_argument(
+            "--overflow-threshold-pt",
+            type=float,
+            default=1.0,
+            metavar="PT",
+            help="Minimum right-margin overflow, in points, to report or gate on. "
+                 "Default: 1.0 (ignores sub-point rounding noise).",
         )
         build_parser.add_argument(
             "--heading-case-lint",

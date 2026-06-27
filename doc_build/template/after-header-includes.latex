@@ -199,6 +199,12 @@ $endif$
 \setmathfont{DejaVuMathTeXGyre.ttf}[
   Path = $dejavufontpath$,
 ]
+% \setminus maps (via unicode-math) to U+29F5 (reverse-solidus operator), which
+% no bundled math font provides, so it is SILENTLY dropped from the PDF (rendered
+% as a blank/tofu box, with no build error). Render it as U+2216 (set minus) --
+% the standard set-minus glyph -- which DejaVuMathTeXGyre provides natively.
+% See aousd/doc_build#100.
+\AtBeginDocument{\renewcommand{\setminus}{\mathbin{\char"2216}}}
 
 \setsansfont{DejaVuSans.ttf}[
   Path = $dejavufontpath$,
