@@ -21,6 +21,7 @@ Usage from the command line:
 """
 
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -79,6 +80,50 @@ class Violation:
             f"(line {self.first_sub_lineno})"
         )
         return '\n'.join(lines)
+
+
+_HTML_COMMENT_RE = re.compile(r'^\s*<!--.*?-->\s*$', re.DOTALL)
+
+
+def _is_html_comment_block(block: dict) -> bool:
+    """True if *block* is an HTML comment (possibly wrapped in a sourcepos Div)."""
+    candidates = [block]
+    if block.get("t") == "Div":
+        candidates = block.get("c", [None, []])[1]
+    return all(
+        b.get("t") == "RawBlock"
+        and len(b.get("c", [])) == 2
+        and b["c"][0] == "html"
+        and _HTML_COMMENT_RE.match(b["c"][1])
+        for b in candidates
+    )
+
+
+def _strip_html_comment_lines(
+    lines: List[Tuple[int, str]],
+) -> List[Tuple[int, str]]:
+    """Remove lines that are (part of) an HTML comment.
+
+    Handles single-line ``<!-- ... -->`` and multi-line comments where
+    ``<!--`` and ``-->`` are on separate lines.  Lines that contain both
+    non-comment text and a comment tag are kept (conservative).
+    """
+    result: List[Tuple[int, str]] = []
+    in_comment = False
+    for lineno, text in lines:
+        stripped = text.strip()
+        if not in_comment:
+            if _HTML_COMMENT_RE.match(text):
+                continue
+            if stripped.startswith("<!--"):
+                in_comment = True
+                continue
+            result.append((lineno, text))
+        else:
+            if "-->" in stripped:
+                in_comment = False
+            continue
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -145,11 +190,11 @@ def check_file(path: Path) -> List[Violation]:
                 # The first line after the parent heading is raw_lines[cur_lineno]
                 # (0-indexed), and the last line before the child heading is
                 # raw_lines[lineno - 2] (0-indexed).
-                body_lines = [
+                body_lines = _strip_html_comment_lines([
                     (i + 1, raw_lines[i])
                     for i in range(cur_lineno, lineno - 1)
                     if i < len(raw_lines) and raw_lines[i].strip()
-                ]
+                ])
                 violations.append(Violation(
                     file=path,
                     heading_lineno=cur_lineno,
@@ -170,8 +215,9 @@ def check_file(path: Path) -> List[Violation]:
                 body_seen = False
 
         else:
-            # Any non-heading top-level block is body content.
-            if current_heading is not None:
+            # Any non-heading top-level block is body content, unless it
+            # is an HTML comment which is invisible in rendered output.
+            if current_heading is not None and not _is_html_comment_block(block):
                 body_seen = True
 
     return violations
