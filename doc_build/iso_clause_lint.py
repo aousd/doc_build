@@ -21,6 +21,7 @@ Usage from the command line:
 """
 
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -79,6 +80,29 @@ class Violation:
             f"(line {self.first_sub_lineno})"
         )
         return '\n'.join(lines)
+
+
+_HTML_COMMENT_RE = re.compile(r'^\s*<!--.*?-->\s*$', re.DOTALL)
+
+
+def _is_html_comment_block(block: dict) -> bool:
+    """True if *block* is an HTML comment (possibly wrapped in a sourcepos Div)."""
+    candidates = [block]
+    if block.get("t") == "Div":
+        candidates = block.get("c", [None, []])[1]
+    return all(
+        b.get("t") == "RawBlock"
+        and len(b.get("c", [])) == 2
+        and b["c"][0] == "html"
+        and _HTML_COMMENT_RE.match(b["c"][1])
+        for b in candidates
+    )
+
+
+def _is_html_comment_line(line: str) -> bool:
+    """True if *line* is (part of) an HTML comment."""
+    stripped = line.strip()
+    return stripped.startswith("<!--") or stripped.endswith("-->") or stripped == ""
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +173,7 @@ def check_file(path: Path) -> List[Violation]:
                     (i + 1, raw_lines[i])
                     for i in range(cur_lineno, lineno - 1)
                     if i < len(raw_lines) and raw_lines[i].strip()
+                    and not _HTML_COMMENT_RE.match(raw_lines[i])
                 ]
                 violations.append(Violation(
                     file=path,
@@ -170,8 +195,9 @@ def check_file(path: Path) -> List[Violation]:
                 body_seen = False
 
         else:
-            # Any non-heading top-level block is body content.
-            if current_heading is not None:
+            # Any non-heading top-level block is body content, unless it
+            # is an HTML comment which is invisible in rendered output.
+            if current_heading is not None and not _is_html_comment_block(block):
                 body_seen = True
 
     return violations
