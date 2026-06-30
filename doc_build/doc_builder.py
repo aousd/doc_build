@@ -54,6 +54,14 @@ DIFF_BEFORE_FILENAME_TEMPLATE = "{base}.before_{from_short}"
 DIFF_AFTER_FILENAME_TEMPLATE = "{base}.after_{to_short}"
 DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 
+# PDF quality-gate defaults (aousd/doc_build#100). Single source of truth shared
+# by the CLI (argparse `default=`) and programmatic callers that don't go through
+# argparse (e.g. the diff self-test passes a SimpleNamespace), so the two paths
+# cannot drift apart.
+GATE_DEFAULT_NO_CHECK_GLYPHS = False
+GATE_DEFAULT_CHECK_OVERFLOW = False
+GATE_DEFAULT_OVERFLOW_THRESHOLD_PT = 1.0
+
 
 class _ZeroToTwoArgsAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -602,9 +610,13 @@ class DocBuilder:
                     _report_pdf_diagnostics(
                         overflows,
                         missing_glyphs,
-                        check_glyphs=not args.no_check_glyphs,
-                        check_overflow=args.check_overflow,
-                        overflow_threshold_pt=args.overflow_threshold_pt,
+                        check_glyphs=not getattr(
+                            args, "no_check_glyphs", GATE_DEFAULT_NO_CHECK_GLYPHS),
+                        check_overflow=getattr(
+                            args, "check_overflow", GATE_DEFAULT_CHECK_OVERFLOW),
+                        overflow_threshold_pt=getattr(
+                            args, "overflow_threshold_pt",
+                            GATE_DEFAULT_OVERFLOW_THRESHOLD_PT),
                     )
 
                 pdf_extra = [f"--include-in-header={latex_diff_preamble}"] if is_diff else []
@@ -1538,17 +1550,19 @@ class DocBuilder:
             help="Do not fail the PDF build when characters are silently dropped "
                  "(missing-glyph warnings); report them only. Default: fail.",
             action="store_true",
+            default=GATE_DEFAULT_NO_CHECK_GLYPHS,
         )
         build_parser.add_argument(
             "--check-overflow",
             help="Fail the PDF build when content overflows the right text margin "
                  "by >= --overflow-threshold-pt. Default: report only.",
             action="store_true",
+            default=GATE_DEFAULT_CHECK_OVERFLOW,
         )
         build_parser.add_argument(
             "--overflow-threshold-pt",
             type=float,
-            default=1.0,
+            default=GATE_DEFAULT_OVERFLOW_THRESHOLD_PT,
             metavar="PT",
             help="Minimum right-margin overflow, in points, to report or gate on. "
                  "Default: 1.0 (ignores sub-point rounding noise).",
