@@ -206,11 +206,36 @@ class IsoXrefFilter:
         # anchor → section_key lets us detect them cheaply during the heading walk
         # without consuming a section_order slot.
         section_order_set = set(section_order)
-        anchor_to_extra = {
-            key.replace('_', '-'): key          # e.g. 'copyright_license_...' → 'copyright-license-...'
+        # Null-mapped sections that are NOT reachable through README.md are injected
+        # into combined_spec.md by the build script (e.g. the copyright licence page).
+        # Their rendered anchor is derived by Pandoc from the *heading text*, which
+        # can differ from the YAML key: the licence page uses a long title in draft
+        # mode ('Copyright License Agreement for AOUSD Draft Deliverables …') but a
+        # short title in publish/--no-draft mode ('Copyright License Agreement'). A
+        # single exact key therefore only matches one build mode and silently
+        # desyncs section_order in the other. Match on a normalised prefix in either
+        # direction so the same map entry recognises the heading regardless of the
+        # exact wording the build injects.
+        extra_keys = {
+            key: key.replace('_', '-')
             for key, val in self._clause_map.items()
             if val is None and key not in section_order_set  # null YAML entry not reachable from README.md
         }
+
+        def _match_extra(rendered_anchor):
+            """Return the map key for an injected null-mapped heading, or None.
+
+            Matches a rendered anchor to a null-mapped-but-not-in-README key when
+            either dashed form is a prefix of the other (after stripping Pandoc's
+            numeric dedup suffix, e.g. '-1'). Prefix-either-direction absorbs the
+            draft/publish title-length difference for the licence page without
+            depending on the exact injected wording.
+            """
+            base = re.sub(r'-\d+$', '', rendered_anchor)
+            for key, dashed in extra_keys.items():
+                if base == dashed or base.startswith(dashed) or dashed.startswith(base):
+                    return key
+            return None
 
         # ---- Parse the combined spec ----
         # combined_spec.md is the flat concatenation of all source files produced
@@ -256,8 +281,9 @@ class IsoXrefFilter:
                 # outside the README.md link flow (e.g. copyright notices).  These
                 # sections are in the YAML as null but have no entry in section_order,
                 # so they must not consume a section_order slot.
-                if anchor in anchor_to_extra:
-                    current_section = TopSection(key=anchor_to_extra[anchor], clause=None)
+                extra_key = _match_extra(anchor)
+                if extra_key is not None:
+                    current_section = TopSection(key=extra_key, clause=None)
                     continue  # do not advance section_idx
 
                 # Map this heading to its source file by consuming the next entry
@@ -373,7 +399,27 @@ class IsoXrefFilter:
         Header value layout: [level, [id, classes, kv-pairs], inlines]
         """
         anchor = value[1][0]                    # Pandoc-assigned heading id
-        if anchor in self._anchor_info:
+        info = self._anchor_info.get(anchor)
+        if info is not None:
+            number_str, level, is_annex = info
+            if is_annex:
+                # Pandoc's --number-sections has no concept of an annex; left alone
+                # it would number the annex sequentially as the next clause
+                # (e.g. '16 Versioning'). Mark the heading 'unnumbered' so Pandoc
+                # skips its counter, then render the ISO label into the heading
+                # text ourselves: 'Annex A' + newline-title at level 1, or the
+                # dotted 'A.1' number inline at deeper levels.
+                classes = value[1][1]
+                if 'unnumbered' in classes:
+                    return None
+                new_attr = [value[1][0], classes + ['unnumbered'], value[1][2]]
+                if level == 1:
+                    # Prepend 'Annex A (informative) — ' to the title inlines.
+                    new_inlines = [Str('Annex'), Space(), Str(number_str), Space(),
+                                   Str('(informative)'), Space(), Str('—'), Space()] + value[2]
+                else:
+                    new_inlines = [Str(number_str), Space()] + value[2]
+                return {'t': 'Header', 'c': [value[0], new_attr, new_inlines]}
             return None                         # numbered clause — leave Pandoc's counter running
         classes = value[1][1]
         if 'unnumbered' in classes:

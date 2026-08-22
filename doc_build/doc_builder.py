@@ -686,8 +686,97 @@ class DocBuilder:
                 docx = output_dir / f"{filename}.docx"
                 log(f"\tBuilding DocX to {docx}...")
                 pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
+                self.postprocess_docx(docx)
 
         return pdf, docx, html, md
+
+    def postprocess_docx(self, docx_path):
+        """Apply DOCX fixes that Pandoc does not emit correctly on its own.
+
+        Two register items, both edited directly on the emitted file so they are
+        template-agnostic and survive the ISO Word-template conversion at Stage 2:
+
+          * item 3 - set <w:updateFields w:val="true"/> in word/settings.xml so
+            Word rebuilds the (otherwise empty) Table of Contents field on open.
+          * item 5 - give the numbered Heading styles a tab stop + hanging indent
+            so the tab Pandoc already inserts between the clause number and the
+            title has somewhere to stop. Without a tab stop the tab collapses and
+            the number butts against the title, e.g. '5.7.1.1General'.
+
+        The identical Heading-style change is also required in Rex's ISO Word
+        template (which reapplies its own Heading styles), so this is noted for
+        the editor as well.
+        """
+        import zipfile
+        from xml.etree import ElementTree as ET
+
+        docx_path = Path(docx_path)
+        w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        ET.register_namespace("w", w_ns)
+        W = f"{{{w_ns}}}"
+        settings_name = "word/settings.xml"
+        styles_name = "word/styles.xml"
+
+        with zipfile.ZipFile(docx_path) as zin:
+            contents = {n: zin.read(n) for n in zin.namelist()}
+
+        # --- item 3: updateFields on open -------------------------------------
+        if settings_name in contents:
+            root = ET.fromstring(contents[settings_name])
+            tag = f"{W}updateFields"
+            existing = root.find(tag)
+            if existing is None:
+                el = ET.Element(tag)
+                el.set(f"{W}val", "true")
+                root.insert(0, el)  # must be an early child of w:settings
+            else:
+                existing.set(f"{W}val", "true")
+            contents[settings_name] = (
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                + ET.tostring(root, encoding="utf-8")
+            )
+        else:
+            contents[settings_name] = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<w:settings xmlns:w="{w_ns}">'
+                '<w:updateFields w:val="true"/>'
+                '</w:settings>'
+            ).encode("utf-8")
+
+        # --- item 5: tab stop between clause number and heading title ---------
+        if styles_name in contents:
+            root = ET.fromstring(contents[styles_name])
+            # A 720-twip (0.5in) left tab, with a matching hanging indent so a
+            # wrapped title aligns under the title, not under the number.
+            tab_pos = "720"
+            for style in root.findall(f"{W}style"):
+                sid = style.get(f"{W}styleId", "")
+                if not sid.startswith("Heading"):
+                    continue
+                ppr = style.find(f"{W}pPr")
+                if ppr is None:
+                    ppr = ET.SubElement(style, f"{W}pPr")
+                if ppr.find(f"{W}tabs") is None:
+                    tabs = ET.Element(f"{W}tabs")
+                    tab = ET.SubElement(tabs, f"{W}tab")
+                    tab.set(f"{W}val", "left")
+                    tab.set(f"{W}pos", tab_pos)
+                    ppr.insert(0, tabs)
+                if ppr.find(f"{W}ind") is None:
+                    ind = ET.Element(f"{W}ind")
+                    ind.set(f"{W}left", tab_pos)
+                    ind.set(f"{W}hanging", tab_pos)
+                    ppr.append(ind)
+            contents[styles_name] = (
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                + ET.tostring(root, encoding="utf-8")
+            )
+
+        tmp_path = docx_path.with_suffix(".docx.tmp")
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for n, data in contents.items():
+                zout.writestr(n, data)
+        tmp_path.replace(docx_path)
 
     def get_doc_build_filters(self):
         """Return a list of paths to the filters the build_doc method runs in the order they must run"""

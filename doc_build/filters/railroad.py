@@ -136,7 +136,9 @@ class DiagramItem:
         if self.name == "path":
             write(' stroke="black" stroke-width="2" fill="none"')
         elif self.name == "rect":
-            if "group-box-" in self.attrs.get("class", ""):
+            if self.attrs.get("class", "") == "railroad-background":
+                pass  # attrs already carry fill=white, stroke=none; no embedded style
+            elif "group-box-" in self.attrs.get("class", ""):
                 if self.attrs.get("class", "") == "group-box-orange":
                     write(' stroke="rgb(255,165,0)" stroke-width="2" fill="rgba(255, 179, 102, 0.3)"')
                 else:
@@ -436,6 +438,25 @@ class Diagram(DiagramMultiContainer):
             self.up + self.height + self.down + paddingTop + paddingBottom
         )
         self.attrs["viewBox"] = f"0 0 {self.attrs['width']} {self.attrs['height']}"
+        # Explicit white background rect covering the whole viewBox. The CSS
+        # `background-color` in DEFAULT_STYLE is honoured by browsers but is
+        # dropped when the SVG is rasterised for DOCX (librsvg/rsvg has no page
+        # background), leaving black strokes invisible against Word's dark-mode
+        # page. Baking a filled rect into the geometry makes the diagram legible
+        # in every renderer and theme. Added before `g` so it paints underneath.
+        bg = DiagramItem(
+            "rect",
+            {
+                "x": "0",
+                "y": "0",
+                "width": self.attrs["width"],
+                "height": self.attrs["height"],
+                "fill": "white",
+                "stroke": "none",
+                "class": "railroad-background",
+            },
+        )
+        self.children.insert(0, bg)
         g.addTo(self)
         self.formatted = True
         return self
