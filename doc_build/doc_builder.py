@@ -58,6 +58,10 @@ DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 # by the CLI (argparse `default=`) and programmatic callers that don't go through
 # argparse (e.g. the diff self-test passes a SimpleNamespace), so the two paths
 # cannot drift apart.
+# Table-of-contents depth. Same single-source-of-truth pattern as the gate
+# defaults above, so the CLI and programmatic callers cannot drift apart.
+DEFAULT_TOC_DEPTH = 4
+
 GATE_DEFAULT_NO_CHECK_GLYPHS = False
 GATE_DEFAULT_CHECK_OVERFLOW = False
 GATE_DEFAULT_OVERFLOW_THRESHOLD_PT = 1.0
@@ -500,7 +504,7 @@ class DocBuilder:
                 "urlcolor=blue",
                 "--toc=true",
                 "--toc-depth",
-                "2",
+                str(getattr(args, "toc_depth", DEFAULT_TOC_DEPTH)),
                 "--standalone",
                 "--number-sections=true",
                 "--from",
@@ -1522,6 +1526,12 @@ class DocBuilder:
         )
         build_parser.add_argument(
             "--clean", help="Clean before building", action="store_true"
+        )
+        build_parser.add_argument(
+            "--toc-depth",
+            help="Heading depth shown in the table of contents",
+            type=int,
+            default=DEFAULT_TOC_DEPTH,
         )
         build_parser.add_argument(
             "--only", help="Only build certain docs", nargs="*", default=[]
