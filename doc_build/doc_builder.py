@@ -60,7 +60,7 @@ DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 # cannot drift apart.
 # Table-of-contents depth. Same single-source-of-truth pattern as the gate
 # defaults above, so the CLI and programmatic callers cannot drift apart.
-DEFAULT_TOC_DEPTH = 4
+DEFAULT_TOC_DEPTH = 5
 
 GATE_DEFAULT_NO_CHECK_GLYPHS = False
 GATE_DEFAULT_CHECK_OVERFLOW = False
