@@ -18,3 +18,10 @@ foreword:     null   # front matter, not a numbered clause
 introduction: null   # front matter, not a numbered clause
 closing:      null   # back matter; change to {annex: "A"} to make it Annex A
 copyright_license_agreement_for_aousd_draft_deliverables_for_internal_evaluation: null
+
+# Back matter, per ISO/IEC Directives Part 2:
+#   - Versioning and changelog is informative supplementary material -> informative Annex A.
+#   - The Bibliography is unnumbered and appears last (Directives 15.1), so it is
+#     left null (no clause number, no annex letter) rather than lettered.
+versioning:   {annex: "A"}   # informative annex
+bibliography: null           # unnumbered, last (ISO/IEC Directives 15.1)
