@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Rasterise SVG images to PNG so the DOCX writer can place them.
+"""Rasterise SVG images to PNG for the DOCX writer.
 
-Word cannot place an SVG, so every SVG reference is rendered to a PNG here.
+OOXML has no native SVG image type, so every SVG reference is replaced with a
+PNG here and the DOCX never carries vector art.  (Word 2016 and later do render
+SVG through a Microsoft extension, and pandoc can emit it -- see #112 -- but
+this filter predates that route and does not use it.)
+
 The raster is produced at ``AOUSD_DOCX_IMAGE_SCALE`` times the SVG's intrinsic
 pixel size and then labelled with a matching physical resolution, so the figure
 gains detail without changing the size it occupies on the page.

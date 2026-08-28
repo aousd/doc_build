@@ -63,8 +63,8 @@ DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 DEFAULT_TOC_DEPTH = 6
 
 # Multiple of an SVG's intrinsic pixel size at which it is rasterised for the
-# DOCX, which Word cannot place as vector art.  Same single-source-of-truth
-# pattern; kept in sync with DEFAULT_SCALE in filters/filter_convert_svg.py.
+# DOCX, which carries no vector art.  Same single-source-of-truth pattern;
+# kept in sync with DEFAULT_SCALE in filters/filter_convert_svg.py.
 DEFAULT_DOCX_IMAGE_SCALE = 3
 
 GATE_DEFAULT_NO_CHECK_GLYPHS = False
