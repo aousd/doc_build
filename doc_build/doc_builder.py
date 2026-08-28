@@ -62,6 +62,11 @@ DIFF_DIFF_FILENAME_TEMPLATE = "{base}.diff_{from_short}_to_{to_short}"
 # defaults above, so the CLI and programmatic callers cannot drift apart.
 DEFAULT_TOC_DEPTH = 6
 
+# Multiple of an SVG's intrinsic pixel size at which it is rasterised for the
+# DOCX, which Word cannot place as vector art.  Same single-source-of-truth
+# pattern; kept in sync with DEFAULT_SCALE in filters/filter_convert_svg.py.
+DEFAULT_DOCX_IMAGE_SCALE = 3
+
 GATE_DEFAULT_NO_CHECK_GLYPHS = False
 GATE_DEFAULT_CHECK_OVERFLOW = False
 GATE_DEFAULT_OVERFLOW_THRESHOLD_PT = 1.0
@@ -689,7 +694,14 @@ class DocBuilder:
             if not args.no_docx and not skip_docx:
                 docx = output_dir / f"{filename}.docx"
                 log(f"\tBuilding DocX to {docx}...")
-                pandoc(shared_command + ["-o", docx, "-F", self.get_filter("convert_svg")])
+                docx_image_scale = getattr(
+                    args, "docx_image_scale", DEFAULT_DOCX_IMAGE_SCALE
+                )
+                pandoc(shared_command + [
+                    "-o", docx,
+                    "-M", f"AOUSD_DOCX_IMAGE_SCALE={docx_image_scale}",
+                    "-F", self.get_filter("convert_svg"),
+                ])
                 self.postprocess_docx(docx)
 
         return pdf, docx, html, md
@@ -1621,6 +1633,16 @@ class DocBuilder:
             help="Heading depth shown in the table of contents",
             type=int,
             default=DEFAULT_TOC_DEPTH,
+        )
+        build_parser.add_argument(
+            "--docx-image-scale",
+            help=(
+                "Multiple of its intrinsic size at which each SVG is rasterised"
+                " for the DOCX. Raises figure resolution; page layout is"
+                " unaffected"
+            ),
+            type=int,
+            default=DEFAULT_DOCX_IMAGE_SCALE,
         )
         build_parser.add_argument(
             "--only", help="Only build certain docs", nargs="*", default=[]
