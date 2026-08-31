@@ -329,7 +329,11 @@ DEFAULT_STYLE = """\
 	svg.railroad-diagram rect{
 		stroke-width:2;
 		stroke:black;
-		fill:hsl(120,100%,90%);
+		fill:white;
+	}
+	svg.railroad-diagram rect.railroad-background {
+		stroke:none;
+		fill:white;
 	}
 	svg.railroad-diagram rect.group-box {
 		stroke: gray;
@@ -444,6 +448,10 @@ class Diagram(DiagramMultiContainer):
         # background), leaving black strokes invisible against Word's dark-mode
         # page. Baking a filled rect into the geometry makes the diagram legible
         # in every renderer and theme. Added before `g` so it paints underneath.
+        #
+        # The fill and stroke below are presentation attributes, which any CSS
+        # rule outranks -- the `rect.railroad-background` rule in DEFAULT_STYLE
+        # is what actually holds them.
         bg = DiagramItem(
             "rect",
             {
