@@ -1,6 +1,6 @@
 # Copyright License Agreement
 
-Copyright @ 2025 Alliance for OpenUSD (“AOUSD”)
+Copyright @ {{year}} Alliance for OpenUSD (“AOUSD”)
  
 This AOUSD Final Deliverable is made available under the terms of the Creative Commons Attribution-NoDerivatives 4.0 International License (CC BY-ND 4.0).  As stated in the license, you may copy and redistribute this deliverable, provided that attribution is given to the Alliance for OpenUSD.  However, if you create a derivative work from the deliverable, you may not distribute that work.  A copy of the license is available at [https://creativecommons.org/licenses/by-nd/4.0/](https://creativecommons.org/licenses/by-nd/4.0/).
  
