@@ -92,6 +92,7 @@ The following subcommands are available:
     * `--clean`: Runs the cleanup subcommand before running
     * `--only`/`--exclude`: Limits which sections get inlined during processing
     * `--no-draft`: Turns off the draft waterman on the PDF
+    * `--publication-date YYYY-MM-DD`: Sets the cover date. In a `--no-draft` build its year is also the copyright year. Defaults to the `DOC_BUILD_DATE` environment variable, then today, so pass it when building an artifact for publication
     * `--diff from_ref [to_ref]`: Build a document showing changes between two Git refs (e.g. commits, branches, or tags). If `to_ref` is omitted it defaults to `HEAD`. The build uses temporary worktrees to produce combined markdown for each ref, diffs the Pandoc ASTs, then runs the usual pipeline on the annotated diff; output files are named like `diff_<short_from>_<short_to>.pdf`.
 * `clean`: Cleans any build artifacts.
 * `lint`: Lints the build output for common issues.
