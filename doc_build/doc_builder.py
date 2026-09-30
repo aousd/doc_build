@@ -13,7 +13,7 @@ import sys
 import time
 import types
 from pathlib import Path
-from datetime import datetime
+from datetime import date
 from typing import Dict, Optional, Union
 
 from doc_build.ast_diff import diff_ast_files
@@ -467,7 +467,7 @@ class DocBuilder:
                 combined,
                 *doc_build_filters,
                 "-V",
-                f"date={datetime.today().strftime('%Y-%m-%d')}",
+                f"date={self.get_publication_date(args).isoformat()}",
                 "-V",
                 f"fontpath={fontpath}",
                 "-V",
@@ -821,7 +821,12 @@ class DocBuilder:
         self.flatten(args, entry_point, combined, substitutions=substitutions)
 
         if args.no_draft:
-            self.add_publish_copyright(combined)
+            if not self.has_explicit_publication_date(args):
+                log(
+                    "	WARNING: --no-draft without --publication-date: the cover date and "
+                    "copyright year will be today's, not the publication date's"
+                )
+            self.add_publish_copyright(combined, self.get_publication_date(args))
         else:
             self.add_draft_copyright(combined)
 
@@ -1650,6 +1655,13 @@ class DocBuilder:
             "--no-draft", help="Do not add draft watermark", action="store_true"
         )
         build_parser.add_argument(
+            "--publication-date",
+            help="Publication date (YYYY-MM-DD) for the cover, and whose year is the "
+            "copyright year. Falls back to the DOC_BUILD_DATE environment variable, "
+            "then today",
+            type=date.fromisoformat,
+        )
+        build_parser.add_argument(
             "--iso-xrefs",
             help="Apply ISO cross-reference formatting (clause numbers, URL display, "
                  "citation expansion). Uses a specification-specific iso_clause_map.yaml "
@@ -1858,8 +1870,24 @@ class DocBuilder:
         p.set_defaults(func=self.iso_fix_all)
         return p
 
-    def add_publish_copyright(self, combined):
-        intro_copyright = self.get_publish_intro_legalese()
+    def has_explicit_publication_date(self, args):
+        return bool(getattr(args, "publication_date", None) or os.environ.get("DOC_BUILD_DATE"))
+
+    def get_publication_date(self, args) -> date:
+        """The date on the cover, whose year is also the copyright year.
+
+        Taken from --publication-date, else the DOC_BUILD_DATE environment
+        variable (YYYY-MM-DD), else today.
+        """
+        if publication_date := getattr(args, "publication_date", None):
+            return publication_date
+        if env_date := os.environ.get("DOC_BUILD_DATE"):
+            return date.fromisoformat(env_date)
+        return date.today()
+
+    def add_publish_copyright(self, combined, publication_date=None):
+        year = (publication_date or date.today()).year
+        intro_copyright = self.get_publish_intro_legalese().replace("{{year}}", str(year))
         outro = self.get_publish_outro_legalese()
         content = self._read_file(combined)
 
