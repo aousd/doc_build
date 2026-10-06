@@ -76,6 +76,25 @@ When the spec requires implementations to provide certain functionality, describ
 | `VtValue`, `SdfValueTypeName` | value, type |
 | `SdfPath` | path |
 
+### 8. Keep `.`, maths symbols, `/` and `&` out of headings
+
+These characters make a heading's anchor differ between the built document and GitHub, so a cross-reference to it resolves in one and dies in the other.
+
+The build reads Markdown as `markdown-hard_line_breaks`, which uses Pandoc's own identifier rules. GitHub uses GFM's. They disagree:
+
+| Heading | Built anchor | GitHub anchor |
+|---------|--------------|---------------|
+| `Example 4 (implied vs. authored ordering)` | `example-4-implied-vs.-authored-ordering` | `example-4-implied-vs-authored-ordering` |
+| `Version 1.1.1` | `version-1.1.1` | `version-111` |
+| `Combining (∪)` | `combining` | `combining-` |
+| `Paths / references` | `paths-references` | `paths--references` |
+
+Commas, colons and inline code are safe — both agree on those.
+
+**Never verify an anchor by clicking it on GitHub.** GitHub renders the GFM form, so a link written to match it looks correct there and breaks in the DOCX and the HTML. The authoritative check is the built DOCX: match every `w:hyperlink w:anchor` against `w:bookmarkStart w:name`.
+
+Maths symbols in headings are additionally out by decision (aousd/doc_build#110): they cost portability across Markdown, PDF and DOCX for no benefit.
+
 ## Workflow
 
 When editing or reviewing a specification file:
@@ -85,6 +104,7 @@ When editing or reviewing a specification file:
 3. Search for `::` — likely a C++ method reference that needs abstracting
 4. Search for `\bclass\b` — check if it should be "schema" or "type"
 5. Search for `TokensType` — likely a C++ token accessor to replace with an attribute name
+6. Check any new heading for `.`, maths symbols, `/` or `&` — see rule 8
 
 ## Reference
 
